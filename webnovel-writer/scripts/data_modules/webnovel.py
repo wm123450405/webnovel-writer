@@ -186,6 +186,240 @@ def cmd_use(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update_character_card(args: argparse.Namespace) -> int:
+    """更新角色卡出场记录"""
+    import json
+    from pathlib import Path
+
+    project_root = _resolve_root(args.project_root)
+    chapter = args.chapter
+
+    # 导入需要的模块
+    from data_modules.state_manager import StateManager
+    from data_modules.index_manager import IndexManager
+    from data_modules.config import get_config
+
+    config = get_config(project_root)
+    sm = StateManager(config)
+    im = IndexManager(config)
+
+    # 获取本章出场角色
+    chapter_data = im.get_chapter(chapter)
+    if not chapter_data:
+        print(f"未找到章节 {chapter} 的数据")
+        return 1
+
+    # 从 chapter_data 获取出场角色
+    characters = chapter_data.get("characters", [])
+    if isinstance(characters, str):
+        try:
+            characters = json.loads(characters)
+        except:
+            characters = []
+
+    if not characters:
+        print(f"章节 {chapter} 没有角色出场")
+        return 0
+
+    print(f"章节 {chapter} 出场角色: {characters}")
+
+    # 获取设定集目录
+    settings_dir = project_root / "设定集"
+
+    # 定义角色卡文件路径映射
+    character_card_paths = {
+        # 主角名 -> 主角卡
+        # 女主名 -> 女主卡
+        # 其他 -> 角色库
+    }
+
+    # 从 state.json 获取主角和女主信息
+    state = sm._state
+    protagonist_name = state.get("protagonist", {}).get("name", "")
+    heroines = state.get("relationship", {}).get("heroine_names", [])
+
+    updated_cards = []
+
+    for char_id in characters:
+        # 获取角色详细信息
+        entity = sm.get_entity(char_id, "角色")
+        if not entity:
+            # 尝试从 SQLite 获取
+            entity = sm.get_entity(char_id)
+            if entity and entity.get("type") != "角色":
+                entity = None
+
+        if not entity:
+            print(f"未找到角色 {char_id} 的实体信息")
+            continue
+
+        char_name = entity.get("name", char_id)
+        first_appearance = entity.get("first_appearance", 0)
+        last_appearance = entity.get("last_appearance", 0)
+
+        # 确定角色卡文件路径
+        card_path = None
+        card_type = ""
+
+        # 检查是否是主角
+        if protagonist_name and (char_name == protagonist_name or char_id == protagonist_name):
+            card_path = settings_dir / "主角卡.md"
+            card_type = "主角"
+        # 检查是否是女主
+        elif heroines and char_name in heroines:
+            card_path = settings_dir / "女主卡.md"
+            card_type = "女主"
+        else:
+            # 其他角色，查找角色库
+            tier = entity.get("tier", "次要")
+            if tier == "核心":
+                card_dir = settings_dir / "角色库" / "主要角色"
+            elif tier == "重要":
+                card_dir = settings_dir / "角色库" / "主要角色"
+            elif tier == "次要":
+                card_dir = settings_dir / "角色库" / "次要角色"
+            else:
+                card_dir = settings_dir / "角色库" / "次要角色"
+
+            # 查找对应的角色卡文件
+            if card_dir.exists():
+                # 尝试查找与角色名匹配的文件
+                for f in card_dir.glob("*.md"):
+                    if char_name in f.stem or char_id in f.stem:
+                        card_path = f
+                        break
+
+            if not card_path:
+                # 如果没有找到，尝试创建新文件
+                card_path = card_dir / f"{char_name}.md"
+                card_type = f"角色（{tier}）"
+
+        if card_path:
+            # 读取现有角色卡内容
+            if card_path.exists():
+                content = card_path.read_text(encoding="utf-8")
+            else:
+                # 使用模板创建新角色卡
+                content = _generate_character_card_template(char_name, entity)
+
+            # 更新出场记录
+            content = _update_appearance_record(content, chapter, first_appearance, last_appearance, char_type=card_type)
+
+            # 写入更新后的内容
+            card_path.parent.mkdir(parents=True, exist_ok=True)
+            card_path.write_text(content, encoding="utf-8")
+            updated_cards.append(str(card_path))
+            print(f"已更新角色卡: {card_path} (角色: {char_name})")
+
+    if updated_cards:
+        print(f"共更新 {len(updated_cards)} 个角色卡")
+    else:
+        print("没有角色卡需要更新")
+
+    return 0
+
+
+def _generate_character_card_template(char_name: str, entity: dict) -> str:
+    """生成角色卡模板"""
+    tier = entity.get("tier", "次要")
+    desc = entity.get("desc", "")
+    aliases = entity.get("aliases", [])
+
+    template = f"""# {char_name}
+
+## 基本信息
+- 姓名：{char_name}
+- 身份：
+- 起点状态：
+
+## 出场记录
+- 首次出场章节：
+- 最后出场章节：
+- 出场章节列表：
+- 本章出场摘要：
+
+## 核心标签
+- 3个关键词：
+- 读者第一印象：
+
+## 性格与底色
+- 核心性格：
+- 行为底线：
+- 情绪触发点：
+
+## 动机与目标
+- 短期目标：
+- 中期目标：
+- 长期目标：
+
+## 缺陷与代价
+- 性格缺陷：
+- 能力限制：
+
+## 关系
+{'- 主角关系：' + (desc if desc else '')}
+
+## OOC 警戒
+- 绝不该做的事：
+- 需要提前铺垫的事：
+"""
+    return template
+
+
+def _update_appearance_record(content: str, chapter: int, first_appearance: int, last_appearance: int, char_type: str = "") -> str:
+    """更新角色卡的出场记录部分"""
+    lines = content.split("\n")
+
+    # 查找"出场记录"部分
+    in_appearance_section = False
+    updated_lines = []
+    first_found = False
+    last_found = False
+    list_found = False
+
+    for i, line in enumerate(lines):
+        # 检测是否进入出场记录部分
+        if "出场记录" in line and ("##" in line or "#" in line):
+            in_appearance_section = True
+            updated_lines.append(line)
+            continue
+
+        if in_appearance_section:
+            # 检测是否离开出场记录部分（遇到下一个 ## 标题）
+            if line.strip().startswith("## ") and "出场记录" not in line:
+                in_appearance_section = False
+                updated_lines.append(line)
+                continue
+
+            # 更新首次出场章节
+            if "首次出场章节" in line and ":" in line:
+                first_found = True
+                # 首次出场取较小值
+                if first_appearance == 0 or first_appearance > chapter:
+                    first_appearance = chapter
+                updated_lines.append(f"- 首次出场章节：第{first_appearance}章")
+                continue
+
+            # 更新最后出场章节
+            if "最后出场章节" in line and ":" in line:
+                last_found = True
+                # 最后出场取较大值
+                if last_appearance < chapter:
+                    last_appearance = chapter
+                updated_lines.append(f"- 最后出场章节：第{last_appearance}章")
+                continue
+
+            # 更新出场章节列表
+            if "出场章节列表" in line and ":" in line:
+                list_found = True
+                updated_lines.append(f"- 出场章节列表：第{chapter}章")
+                continue
+
+        updated_lines.append(line)
+
+    return "\n".join(updated_lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="webnovel unified CLI")
     parser.add_argument("--project-root", help="书项目根目录或工作区根目录（可选，默认自动检测）")
@@ -248,6 +482,11 @@ def main() -> None:
     p_extract_context = sub.add_parser("extract-context", help="转发到 extract_chapter_context.py")
     p_extract_context.add_argument("--chapter", type=int, required=True, help="目标章节号")
     p_extract_context.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
+
+    # 角色卡更新
+    p_character_card = sub.add_parser("update-character-card", help="更新角色卡出场记录")
+    p_character_card.add_argument("--chapter", type=int, required=True, help="目标章节号")
+    p_character_card.set_defaults(func=cmd_update_character_card)
 
     # 兼容：允许 `--project-root` 出现在任意位置（减少 agents/skills 拼命令的出错率）
     from .cli_args import normalize_global_project_root

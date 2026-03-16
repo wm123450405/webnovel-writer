@@ -1,6 +1,6 @@
 ---
 name: webnovel-dashboard
-description: 启动可视化小说管理面板（只读 Web Dashboard），实时查看项目状态、实体图谱与章节内容。
+description: 启动可视化小说管理面板（只读 Web Dashboard），实时查看项目状态、实体图谱与章节内容，支持角色、道具、势力等实体信息查看。
 allowed-tools: Bash Read
 ---
 
@@ -10,10 +10,11 @@ allowed-tools: Bash Read
 
 在本地启动一个 **只读** Web 面板，用于可视化查看当前小说项目的：
 - 创作进度与 Strand 节奏分布
-- 设定词典（角色/地点/势力等实体）
+- 设定词典（角色/道具/地点/势力等实体）
 - 关系图谱
 - 章节与大纲内容浏览
 - 追读力分析数据
+- **【新增】道具信息查看**：道具卡、道具出场记录、道具能力设定
 
 面板通过 `watchdog` 监听 `.webnovel/` 目录变更并实时刷新，不对项目做任何修改。
 

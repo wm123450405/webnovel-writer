@@ -413,6 +413,32 @@ cat > "$SAVE_PATH" << 'EOF'
 EOF
 ```
 
+### 4.3 注册到 index.db（必须）
+
+创建或更新功法后，必须注册到 index.db：
+
+```bash
+# 注册功法到 index.db
+python -c "
+import sys
+sys.path.insert(0, '${SCRIPTS_DIR}')
+from data_modules.index_manager import IndexManager
+
+im = IndexManager('${PROJECT_ROOT}/.webnovel/config.json')
+im.upsert_entity({
+    'id': '功法名',
+    'type': '招式',
+    'name': '功法名',
+    'power_type': '功法',
+    'tier': '次要',
+    'desc': '功法描述',
+    'element': '雷',
+    'cultivation_level': '筑基'
+}, update_metadata=True)
+print('功法已注册到 index.db')
+"
+```
+
 ### 4.2 功法已存在：更新功法信息
 
 使用以下命令更新功法：
@@ -428,7 +454,7 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" entity update
 {
   "id": "功法名",
   "name": "功法名",
-  "type": "能力",
+  "type": "招式",
   "power_type": "功法/法术/阵法/秘术/技巧/神通/异火/炼丹",
   "tier": "核心|重要|次要|装饰",
   "element": "属性",
@@ -461,7 +487,7 @@ import json
 sys.path.insert(0, '${SCRIPTS_DIR}')
 from data_modules.state_manager import StateManager
 sm = StateManager()
-entity = sm.get_entity('功法名', '能力')
+entity = sm.get_entity('功法名', '招式')
 if entity:
     print('首次出场:', entity.get('first_appearance', '未知'))
     print('最后出场:', entity.get('last_appearance', '未知'))

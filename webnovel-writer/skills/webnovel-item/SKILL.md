@@ -529,6 +529,30 @@ rarity: 上品
 - 首次出场：第{数字}章
 ```
 
+### 4.3 注册到 index.db（必须）
+
+创建或更新道具后，必须注册到 index.db：
+
+```bash
+# 注册道具到 index.db
+python -c "
+import sys
+sys.path.insert(0, '${SCRIPTS_DIR}')
+from data_modules.index_manager import IndexManager
+
+im = IndexManager('${PROJECT_ROOT}/.webnovel/config.json')
+im.upsert_entity({
+    'id': '道具名',
+    'type': '物品',
+    'name': '道具名',
+    'tier': '次要',
+    'desc': '道具描述',
+    'aliases': ['别名1', '别名2']
+}, update_metadata=True)
+print('道具已注册到 index.db')
+"
+```
+
 ### 4.2 道具已存在：更新道具信息
 
 使用以下命令更新道具：

@@ -430,6 +430,37 @@ sm.add_entity(entity)
 "
 ```
 
+### 4.3 注册到 index.db（必须）
+
+创建或更新角色后，必须注册到 index.db：
+
+```bash
+# 注册角色到 index.db
+python -c "
+import sys
+sys.path.insert(0, '${SCRIPTS_DIR}')
+from data_modules.index_manager import IndexManager
+
+im = IndexManager('${PROJECT_ROOT}/.webnovel/config.json')
+im.upsert_entity({
+    'id': '角色名',
+    'type': '角色',
+    'name': '角色名',
+    'tier': '次要',
+    'desc': '角色描述',
+    'aliases': ['别名1', '别名2']
+}, update_metadata=True)
+print('角色已注册到 index.db')
+"
+```
+
+或使用命令行：
+
+```bash
+# 注册到 index.db（需要确认命令是否可用）
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" index upsert-entity --type 角色 --id "角色名" --name "角色名" --tier "次要" --desc "角色描述"
+```
+
 ### 4.2 角色已存在：更新角色信息
 
 使用以下命令更新角色：

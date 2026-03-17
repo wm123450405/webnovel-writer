@@ -171,6 +171,33 @@ aliases:
 
 当使用 --file 参数时，需要解析外部文件内容。
 
+### ⚠️ 安全约束：只读取指定文件
+
+**严格禁止**：
+- ❌ 禁止使用 find/grep 等命令扫描目录下的其他文件
+- ❌ 禁止读取用户未指定的文件
+- ❌ 禁止自动遍历目录读取文件
+- ❌ 禁止使用通配符（如 *.md）批量读取
+
+**必须遵守**：
+- ✅ 只读取用户通过 --file 参数明确指定的文件
+- ✅ 读取文件前验证文件路径是否与参数完全匹配
+- ✅ 如果用户指定了多个文件，只处理这些指定文件
+
+**示例**：
+```bash
+# ✅ 正确：只读取用户指定的文件
+/webnovel-role --file 角色设定.md
+# 应该只读取 "角色设定.md" 这一个文件
+
+/webnovel-role --file 角色1.md --file 角色2.md
+# 应该只读取 "角色1.md" 和 "角色2.md" 这两个文件
+
+# ❌ 错误：禁止的行为
+/webnovel-role --file *.md  # 禁止批量读取
+/webnovel-role --file ./  # 禁止读取目录
+```
+
 ### 文件解析函数
 
 ```python
@@ -432,12 +459,41 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" query entity 
     "description": "角色描述",
     "personality": "性格特点",
     "background": "背景故事",
-    "relationships": {}
+    "relationships": {},
+    "inner_monologue": {
+      "enabled": true,
+      "frequency": "高|中|低|无",
+      "style": {
+        "language": "语言风格",
+        "content": "内容特点",
+        "length": "长篇大论|简短精悍|点到即止",
+        "sentence_pattern": "疑问句居多|陈述句为主|感叹强烈"
+      },
+      "examples": ["示例1", "示例2"],
+      "trigger_scenes": ["触发场景1", "触发场景2"],
+      "taboos": ["禁忌1", "禁忌2"]
+    }
   },
   "first_appearance": 1,
   "last_appearance": 10
 }
 ```
+
+### 内心独白字段说明
+
+| 字段 | 说明 | 可选值 |
+|------|------|-------|
+| inner_monologue.enabled | 是否启用内心独白 | true/false |
+| inner_monologue.frequency | 使用频率 | 高/中/低/无 |
+| inner_monologue.style.language | 内心独白语言风格 | 简洁有力/文绉绉/幽默/毒舌/直白等 |
+| inner_monologue.style.content | 内心独白内容特点 | 擅长自嘲/喜欢分析/情绪化/理性冷静等 |
+| inner_monologue.style.length | 内心独白长度 | 长篇大论/简短精悍/点到即止 |
+| inner_monologue.style.sentence_pattern | 句式特点 | 疑问句居多/陈述句为主/感叹强烈 |
+| inner_monologue.examples | 内心独白示例 | 字符串数组 |
+| inner_monologue.trigger_scenes | 触发场景 | 字符串数组 |
+| inner_monologue.taboos | 内心独白禁忌 | 字符串数组 |
+
+**注意**：内心独白字段是可选的，如果不设置或 enabled 为 false，则该角色不使用内心独白。
 
 ---
 

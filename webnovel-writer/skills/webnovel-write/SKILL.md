@@ -127,6 +127,9 @@ allowed-tools: Read Write Edit Grep Bash Task
 - `references/writing/movement-constraints.md`
   - 用途：Step 1 角色移动、行动、行走与地图设定一致性约束。
   - 触发：Step 1 写作时涉及角色移动场景必读。
+- `references/writing-standards.md`
+  - 用途：写作基本规范（换段规范、引号使用规范）。
+  - 触发：Step 2A 写作必读，Step 4 润色必读。
 
 ## 工具策略（按需）
 
@@ -153,6 +156,33 @@ allowed-tools: Read Write Edit Grep Bash Task
   - `reference_files`：参考文件列表（若提供）
 
 **【新增】解析外部大纲文件和参考文件**：
+
+### ⚠️ 安全约束：只读取指定文件
+
+**严格禁止**：
+- ❌ 禁止使用 find/grep 等命令扫描目录下的其他文件
+- ❌ 禁止读取用户未指定的文件
+- ❌ 禁止自动遍历目录读取文件
+- ❌ 禁止使用通配符（如 *.md）批量读取
+
+**必须遵守**：
+- ✅ 只读取用户通过 --outline-file 和 --reference 参数明确指定的文件
+- ✅ 读取文件前验证文件路径是否与参数完全匹配
+- ✅ 如果用户指定了多个文件，只处理这些指定文件
+
+**示例**：
+```bash
+# ✅ 正确：只读取用户指定的文件
+/webnovel-write --outline-file 大纲.md 100
+# 应该只读取 “大纲.md” 这一个文件
+
+/webnovel-write --outline-file 大纲.md --reference 参考1.md --reference 参考2.md 100
+# 应该只读取 “大纲.md”、”参考1.md” 和 “参考2.md” 这三个文件
+
+# ❌ 错误：禁止的行为
+/webnovel-write --outline-file *.md 100  # 禁止批量读取
+/webnovel-write --reference ./风格/  # 禁止读取目录
+```
 
 ```bash
 # 解析命令参数
@@ -230,122 +260,28 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" wor
   - 梗概内容将用于后续 Step 5.5 的大纲检查与调整
 - **【新增】外部大纲文件处理**：
   - 若用户提供了 `--outline-file` 参数，使用外部文件作为本章大纲
-  - 外部大纲文件格式：
-    ```markdown
-    # 第100章：章节标题
-
-    ## 目标
-    主角需要完成什么
-
-    ## 情节点
-    - 点1
-    - 点2
-
-    ## 角色
-    - 角色A
-    - 角色B
-
-    ## 道具
-    - 道具A
-
-    ## 场景
-    场景描述
-
-    ## 钩子
-    - 钩子1
-    ```
-  - 将外部大纲内容加载到 Context Agent
-  - 外部大纲与原大纲的关系：
-    - 若外部大纲存在，优先使用外部大纲
-    - 外部大纲作为原大纲的补充或替代
+  - 详细格式见 `references/writing-standards.md` 第9章
   - 外部大纲保存到：`${PROJECT_ROOT}/.webnovel/tmp/chapter_${chapter}_external_outline.md`
 - **【新增】参考文件处理**：
   - 若用户提供了 `--reference` 参数，将参考文件作为写作风格指导
-  - 参考文件支持格式：Markdown、Word、图片、视频
-  - **风格偏离检测**：当参考文件风格与项目整体风格差异超过 30% 时输出警告
-    ```python
-    def check_style_deviation(reference_text: str, project_style: dict) -> float:
-        """计算参考文件风格与项目风格的偏离度，返回 0-1，>0.3 输出警告"""
-        ref_words = reference_text.split()
-        ref_avg_word_len = sum(len(w) for w in ref_words) / max(len(ref_words), 1)
-        ref_sentence_count = reference_text.count('。') + reference_text.count('！') + reference_text.count('？')
-        ref_avg_sent_len = len(ref_words) / max(ref_sentence_count, 1)
-
-        style_score = project_style.get('avg_word_length', 4.5)
-        sent_score = project_style.get('avg_sentence_length', 20)
-
-        word_deviation = abs(ref_avg_word_len - style_score) / style_score
-        sent_deviation = abs(ref_avg_sent_len - sent_score) / sent_score
-
-        deviation = (word_deviation + sent_deviation) / 2
-        return deviation
-
-    # 使用示例
-    if deviation > 0.3:
-        print("⚠️ 警告：参考文件风格与项目整体风格偏离度为 {:.1%}，可能影响一致性".format(deviation))
-    ```
-  - 参考文件内容加载到 Context Agent，作为写作风格参考
-  - 参考文件不得与项目总体写作风格脱离太多（>30% 偏离会警告）
+  - 详细规范见 `references/writing-standards.md` 第9章
+  - 风格偏离 >30% 时输出警告
 - **【新增】地图设定集信息加载**：
   - 加载本章涉及的所有地图设定（从 `设定集/地图库/` 目录）
-  - 获取当前章节发生的地点所属的地图信息：
-    - 大陆地图：位置关系、城镇分布、道路网络
-    - 城镇地图：城内布局、街道、区域
-    - 院落地图：建筑内部结构、房间分布
-    - 副本地图：副本结构、区域划分
-  - 加载地图的命令：
-    ```bash
-    # 获取项目中的所有地图
-    find "$PROJECT_ROOT/设定集/地图库" -name "*.md" -type f
-
-    # 获取特定地图内容
-    cat "$PROJECT_ROOT/设定集/地图库/大陆地图/大陆名.md"
-    cat "$PROJECT_ROOT/设定集/地图库/城镇地图/城镇名.md"
-    cat "$PROJECT_ROOT/设定集/地图库/院落地图/院落名.md"
-    cat "$PROJECT_ROOT/设定集/地图库/副本地图/副本名.md"
-    ```
-- **【新增】角色移动与行动约束**：
-  - 根据地图设定约束角色移动：
-    - **距离约束**：角色移动距离需符合地图标注的相对位置
-      - 城镇内移动：通常步行 10-30 分钟/公里
-      - 城际移动：按道路距离和交通工具计算
-      - 御剑/飞行：按境界等级和速度计算
-    - **方向约束**：移动方向需与地图方向一致
-      - 东西南北方向需明确
-      - 位置关系（如"城东"、"城西"）需与地图对应
-    - **时间约束**：到达时间需符合逻辑
-      - 普通步行：一时辰约 20-30 里
-      - 快马：一时辰约 80-100 里
-      - 御剑飞行：按境界（筑基日行千里，金丹日行万里）
-    - **路径约束**：两点间移动需有合理路径
-      - 不能直接穿越障碍（山脉、湖泊、禁区）
-      - 需遵循道路网络
-  - **禁止事项**：
-    - 禁止出现"从东门到西门只需片刻"（距离不合理）
-    - 禁止"瞬间移动"除非有传送阵/瞬移技能
-    - 禁止方向错误（如城东写成了城西）
-    - 禁止跳过必经路径（如穿越山脉不说明如何穿越）
-- **【新增】地图设定在写作执行包中的体现**：
-  - 在"不可变事实清单"中加入地图位置信息
-  - 在"禁止事项"中加入移动约束
-  - 在写作时需要明确标注：起点、终点、距离、时间、方式
-- **【新增】角色首次出场描写指导**：
-  - 本章出场角色列表（含是否是首次出场）
-  - 首次出场角色：必须重点描写，包括外貌、气质、声音等特点
-  - 非首次出场角色：根据出场方式决定描写重点
+  - 详细约束见 `references/writing/movement-constraints.md`
+- **【新增】角色出场与道具出场指导**：
+  - 角色首次出场、非首次出场描写策略
+  - 道具首次出现、首次使用描写
+  - 详细规范见 `references/writing-standards.md` 第5、6章
 - **【新增】角色动态称呼指导**：
-  - 本章各角色的当前关系阶段（陌生人/初识/熟人/亲近/亲密/敌对/尊敬）
-  - 各角色对应的称呼列表（按视角角色划分）
-  - 本章是否涉及关系变化（如刚认识、关系破裂、关系亲密等）
-  - 称呼变化触发点提示：
-    - 如果首次出场是”仅闻其声”，本次出场可以重点描写外貌
-    - 如果首次出场是远距离印象，本次出场可以重点描写近距离细节
-    - 如果已有完整描写，本次出场可以侧重表情、动作、心理等
-- **【新增】道具出场指导**：
-  - 本章出场道具列表（含是否是首次出现、首次使用）
-  - 首次出现道具：必须重点描写外观
-  - 首次使用道具：必须重点描写功效
-  - 已使用过道具：根据使用场景决定描写重点
+  - 各角色的当前关系阶段和称呼列表
+  - 详细规范见 `references/writing-standards.md` 第5章
+- **【新增】角色内心独白指导**：
+  - 若角色设置了 inner_monologue，需遵守其风格
+  - 详细规范见 `references/writing-standards.md` 第7章
+- **【新增】地图移动约束**：
+  - 距离、方向、时间、路径约束
+  - 详细规范见 `references/writing-standards.md` 第8章
 - 合同与任务书出现冲突时，以”大纲与设定约束更严格者”为准。
 
 获取角色首次出场信息的命令：
@@ -368,6 +304,8 @@ python -X utf8 “${SCRIPTS_DIR}/webnovel.py” --project-root “${PROJECT_ROOT
 执行前必须加载：
 ```bash
 cat "${SKILL_ROOT}/../../references/shared/core-constraints.md"
+cat "${SKILL_ROOT}/references/writing-standards.md"
+cat "${SKILL_ROOT}/references/writing/movement-constraints.md"
 ```
 
 硬要求：
@@ -521,6 +459,7 @@ review_metrics 字段约束（当前工作流约定只传以下字段）：
 ```bash
 cat "${SKILL_ROOT}/references/polish-guide.md"
 cat "${SKILL_ROOT}/references/writing/typesetting.md"
+cat "${SKILL_ROOT}/references/writing-standards.md"
 ```
 
 执行顺序：

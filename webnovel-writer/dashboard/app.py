@@ -389,6 +389,175 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         return {"path": path, "content": content}
 
     # ===========================================================
+    # API：功法库（设定集/功法库 —— 只读）
+    # ===========================================================
+
+    def _read_markdown_file(file_path: Path) -> dict:
+        """读取 Markdown 文件，返回包含 frontmatter 和 body 的字典"""
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            if content.startswith('---'):
+                parts = content.split('---', 2)
+                if len(parts) >= 3:
+                    import yaml
+                    frontmatter = yaml.safe_load(parts[1]) or {}
+                    body = parts[2].strip()
+                    return {'frontmatter': frontmatter, 'body': body}
+            return {'body': content}
+        except Exception:
+            return {'body': ''}
+
+    @app.get("/api/powers")
+    def list_powers(power_type: Optional[str] = Query(None, alias="type")):
+        """列出所有功法设定（可按类型过滤）"""
+        root = _get_project_root()
+        powers_dir = root / "设定集" / "功法库"
+
+        if not powers_dir.is_dir():
+            return []
+
+        result = []
+        type_folders = [d for d in powers_dir.iterdir() if d.is_dir()] if power_type is None else [powers_dir / power_type] if (powers_dir / power_type).is_dir() else []
+
+        for folder in type_folders:
+            if power_type and folder.name != power_type:
+                continue
+            for md_file in folder.glob("*.md"):
+                data = _read_markdown_file(md_file)
+                frontmatter = data.get('frontmatter', {})
+                result.append({
+                    'id': md_file.stem,
+                    'name': frontmatter.get('name', md_file.stem),
+                    'power_type': folder.name,
+                    'tier': frontmatter.get('tier', ''),
+                    'element': frontmatter.get('element', ''),
+                    'cultivation_level': frontmatter.get('cultivation_level', ''),
+                    'description': data.get('body', '')[:200],
+                })
+
+        return result
+
+    @app.get("/api/powers/{power_name}")
+    def get_power(power_name: str):
+        """获取单个功法详细信息"""
+        root = _get_project_root()
+        powers_dir = root / "设定集" / "功法库"
+
+        # 搜索所有类型目录
+        for folder in powers_dir.iterdir():
+            if not folder.is_dir():
+                continue
+            power_file = folder / f"{power_name}.md"
+            if power_file.is_file():
+                data = _read_markdown_file(power_file)
+                frontmatter = data.get('frontmatter', {})
+                return {
+                    'id': power_name,
+                    'name': frontmatter.get('name', power_name),
+                    'power_type': folder.name,
+                    'tier': frontmatter.get('tier', ''),
+                    'element': frontmatter.get('element', ''),
+                    'cultivation_level': frontmatter.get('cultivation_level', ''),
+                    'content': data.get('body', ''),
+                }
+
+        raise HTTPException(404, "功法不存在")
+
+    # ===========================================================
+    # API：道具库（包含丹药 - 设定集/道具库 —— 只读）
+    # ===========================================================
+
+    @app.get("/api/items")
+    def list_items(item_type: Optional[str] = Query(None, alias="type")):
+        """列出所有道具设定（可按类型过滤）"""
+        root = _get_project_root()
+        items_dir = root / "设定集" / "道具库"
+
+        if not items_dir.is_dir():
+            # 兼容：道具可能直接在设定集根目录
+            items_dir = root / "设定集"
+
+        if not items_dir.is_dir():
+            return []
+
+        result = []
+
+        # 遍历所有 md 文件（包括子目录）
+        # 子目录结构：道具库/丹药/*.md, 道具库/法宝/*.md 等
+        for md_file in items_dir.rglob("*.md"):
+            # 跳过非道具文件
+            if md_file.stem in ('主角卡', '女主卡', '反派卡', '配角卡', '世界观', '力量体系', '金手指', '地图库', '功法库'):
+                continue
+
+            # 计算相对路径来确定类别
+            try:
+                rel_path = md_file.relative_to(items_dir)
+                # 如果在子目录中，父目录名就是类别
+                if len(rel_path.parts) > 1:
+                    category = rel_path.parts[0]
+                else:
+                    # 根目录的文件，尝试从 frontmatter 获取类别
+                    category = ''
+            except ValueError:
+                category = ''
+
+            data = _read_markdown_file(md_file)
+            frontmatter = data.get('frontmatter', {})
+            # 优先使用 frontmatter 中的类别，否则用目录名
+            item_category = frontmatter.get('category', category)
+
+            if item_type and item_category != item_type:
+                continue
+
+            result.append({
+                'id': md_file.stem,
+                'name': frontmatter.get('name', md_file.stem),
+                'category': item_category,
+                'tier': frontmatter.get('tier', ''),
+                'rarity': frontmatter.get('rarity', ''),
+                'description': data.get('body', '')[:200],
+            })
+
+        return result
+
+    @app.get("/api/items/{item_name}")
+    def get_item(item_name: str):
+        """获取单个道具详细信息"""
+        root = _get_project_root()
+        items_dir = root / "设定集" / "道具库"
+
+        if not items_dir.is_dir():
+            items_dir = root / "设定集"
+
+        # 搜索所有 md 文件（包括子目录）
+        for md_file in items_dir.rglob("*.md"):
+            if md_file.stem == item_name:
+                # 计算类别
+                try:
+                    rel_path = md_file.relative_to(items_dir)
+                    if len(rel_path.parts) > 1:
+                        category = rel_path.parts[0]
+                    else:
+                        category = ''
+                except ValueError:
+                    category = ''
+
+                data = _read_markdown_file(md_file)
+                frontmatter = data.get('frontmatter', {})
+                item_category = frontmatter.get('category', category)
+
+                return {
+                    'id': item_name,
+                    'name': frontmatter.get('name', item_name),
+                    'category': item_category,
+                    'tier': frontmatter.get('tier', ''),
+                    'rarity': frontmatter.get('rarity', ''),
+                    'content': data.get('body', ''),
+                }
+
+        raise HTTPException(404, "道具不存在")
+
+    # ===========================================================
     # SSE：实时变更推送
     # ===========================================================
 

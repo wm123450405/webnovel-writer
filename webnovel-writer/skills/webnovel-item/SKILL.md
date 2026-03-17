@@ -17,7 +17,23 @@ allowed-tools: Read Write Edit Grep Bash Task AskUserQuestion
 - 若有不符合新设定的，需要修改那些不符合设定的章节内容
 - 支持外部文件解析，检测冲突并由用户确认处理方式
 
-## Project Root Guard（必须先确认）
+## 道具类型说明
+
+道具按类型分类存储在不同的子目录下：
+
+| 类型 | 说明 | 示例 | 存储目录 |
+|------|------|------|---------|
+| 丹药 | 修炼/疗伤/突破等丹药 | 筑基丹、破境丹、养魂丹 | 设定集/道具库/丹药/ |
+| 法宝 | 储物/攻防/辅助法宝 | 储物戒指、青锋剑、护盾 | 设定集/道具库/法宝/ |
+| 符箓 | 符咒、灵符、阵符 | 护身符、传讯符、爆炸符 | 设定集/道具库/符箓/ |
+| 兵器 | 武器、盔甲、盾牌 | 长剑、长枪、战甲 | 设定集/道具库/兵器/ |
+| 防具 | 防护类装备 | 护腕、护心镜、战靴 | 设定集/道具库/防具/ |
+| 材料 | 天材地宝、炼器材料 | 玄铁、灵草、妖丹 | 设定集/道具库/材料/ |
+| 灵宠 | 宠物、坐骑、灵兽 | 灵狐、飞鹰、麒麟 | 设定集/道具库/灵宠/ |
+| 阵法 | 阵盘、阵旗、阵图 | 困仙阵、传送阵 | 设定集/道具库/阵法/ |
+| 信物 | 身份凭证、任务信物 | 掌门令、地图残片 | 设定集/道具库/信物/ |
+| 日常 | 日常生活用品 | 银两、衣物、食物 | 设定集/道具库/日常/ |
+| 其他 | 无法归类的道具 | 特殊物品 | 设定集/道具库/其他/ |
 
 - Claude Code 的"工作区根目录"不一定等于"书项目根目录"。常见结构：工作区为 `D:\wk\xiaoshuo`，书项目为 `D:\wk\xiaoshuo\凡人资本论`。
 - 必须先解析真实书项目根（必须包含 `.webnovel/state.json`），后续所有读写路径都以该目录为准。
@@ -380,6 +396,26 @@ def detect_conflicts(old_entity: dict, new_entity: dict) -> list:
 
 ## Step 4: 添加或更新道具信息
 
+### 4.1 创建道具库目录结构
+
+```bash
+# 创建道具库目录
+mkdir -p "$PROJECT_ROOT/设定集/道具库"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/丹药"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/法宝"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/符箓"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/兵器"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/防具"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/材料"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/灵宠"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/阵法"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/信物"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/日常"
+mkdir -p "$PROJECT_ROOT/设定集/道具库/其他"
+```
+
+### 4.2 保存道具文件
+
 ### 4.1 道具不存在：创建新道具
 
 使用以下命令添加新道具：
@@ -406,6 +442,91 @@ entity = EntityState(
 )
 sm.add_entity(entity)
 "
+```
+
+#### 保存道具文件到分类目录
+
+```bash
+# 根据道具类别选择保存路径
+ITEM_NAME="道具名"
+ITEM_CATEGORY="法宝"  # 从道具描述中提取或由用户指定
+
+case "$ITEM_CATEGORY" in
+  "丹药")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/丹药"
+    ;;
+  "法宝")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/法宝"
+    ;;
+  "符箓")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/符箓"
+    ;;
+  "兵器")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/兵器"
+    ;;
+  "防具")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/防具"
+    ;;
+  "材料")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/材料"
+    ;;
+  "灵宠")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/灵宠"
+    ;;
+  "阵法")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/阵法"
+    ;;
+  "信物")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/信物"
+    ;;
+  "日常")
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/日常"
+    ;;
+  *)
+    SAVE_DIR="$PROJECT_ROOT/设定集/道具库/其他"
+    ;;
+esac
+
+# 保存道具文件
+SAVE_PATH="${SAVE_DIR}/${ITEM_NAME}.md"
+cat > "$SAVE_PATH" << 'EOF'
+---
+name: {道具名}
+category: {道具类别}
+tier: 重要
+rarity: 上品
+---
+
+# {道具名}
+
+## 概述
+
+{道具描述}
+
+## 基本信息
+
+| 属性 | 内容 |
+|------|------|
+| 类别 | {道具类别} |
+| 层级 | 核心/重要/次要 |
+| 稀有度 | 凡品/下品/中品/上品/极品/仙品/神品 |
+| 持有者 | {持有者} |
+
+## 能力效果
+
+{道具能力描述}
+
+## 获得方式
+
+{道具获得方式描述}
+
+## 历史背景
+
+{道具历史背景}
+
+## 出场章节
+
+- 首次出场：第{数字}章
 ```
 
 ### 4.2 道具已存在：更新道具信息
@@ -435,7 +556,7 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" query entity 
   "aliases": ["别名1", "别名2"],
   "attributes": {
     "description": "道具描述",
-    "category": "丹药|武器|防具|信物|法宝|灵宠|材料|阵法",
+    "category": "丹药|法宝|符箓|兵器|防具|材料|灵宠|阵法|信物|日常|其他",
     "rarity": "凡品|下品|中品|上品|极品|仙品|神品",
     "abilities": [],
     "owner": "",

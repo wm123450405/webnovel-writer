@@ -37,12 +37,16 @@ allowed-tools: Read Write Edit Grep Bash Task
 /webnovel-write --outline-file <大纲文件> [章节号]
 /webnovel-write --reference <参考文件1> --reference <参考文件2> [章节号]
 /webnovel-write --outline-file <大纲文件> --reference <参考文件1> [章节号]
+/webnovel-write --refine <章节号> [选项]
 ```
 
 **参数说明**：
 - `章节号`：要写作的章节号（可选，默认使用最新章节号+1）
 - `--outline-file`：指定外部文件作为章节大纲（可替代或补充原有大纲）
 - `--reference`：指定额外参考文件用于写作风格指导（可多个）
+- `--refine <章节号>`：**润色/扩写指定章节**，不执行完整写作流程，仅执行 Step 4 润色（含字数检查与扩写）
+- `--expand`：与 `--refine` 配合使用，优先执行扩写
+- `--polish-only`：与 `--refine` 配合使用，仅执行润色，不执行扩写
 
 **示例**：
 ```
@@ -50,6 +54,9 @@ allowed-tools: Read Write Edit Grep Bash Task
 /webnovel-write --outline-file 本章大纲.md 100
 /webnovel-write --outline-file 本章大纲.docx --reference 风格参考.md 100
 /webnovel-write --reference 参考1.md --reference 参考2.png --reference 参考3.mp4 100
+/webnovel-write --refine 50
+/webnovel-write --refine 50 --expand
+/webnovel-write --refine 50 --polish-only
 ```
 
 最小产物（所有模式）：
@@ -239,6 +246,81 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" wor
 - `--step-id` 仅允许：`Step 1` / `Step 2A` / `Step 2B` / `Step 3` / `Step 4` / `Step 5` / `Step 6`。
 - 任何记录失败只记警告，不阻断写作。
 - 每个 Step 执行结束后，同样需要 `complete-step`（失败不阻断）。
+
+---
+
+## 【新增】--refine 模式：润色/扩写指定章节
+
+### 概述
+
+`--refine` 参数用于对已完成的章节进行润色或扩写，不执行完整的写作流程（Step 1-6），仅执行 Step 4 润色。
+
+### 命令格式
+
+```
+/webnovel-write --refine <章节号>
+/webnovel-write --refine <章节号> --expand
+/webnovel-write --refine <章节号> --polish-only
+```
+
+### 参数说明
+
+| 参数 | 说明 |
+|------|------|
+| `--refine <章节号>` | 指定要润色/扩写的章节号 |
+| `--expand` | 优先执行扩写（当字数不足时） |
+| `--polish-only` | 仅执行润色，不执行扩写 |
+
+### 执行流程
+
+```
+1. 加载指定章节正文
+2. 加载参考文件（core-constraints.md, polish-guide.md, expansion-guide.md）
+3. 执行字数检查：
+   - 若字数 < 目标80% 且未指定 --polish-only：执行扩写
+   - 若指定 --expand：强制执行扩写
+4. 执行润色（问题修复）
+5. 保存润色后的正文
+6. 记录变更日志
+```
+
+### 与完整流程的区别
+
+| 方面 | 完整流程 | --refine 模式 |
+|------|---------|---------------|
+| Step 1 Context Agent | ✅ 执行 | ❌ 跳过 |
+| Step 2A 正文起草 | ✅ 执行 | ❌ 跳过 |
+| Step 2B风格转译 | ✅ 执行 | ❌ 跳过 |
+| Step 3审查 | ✅ 执行 | ❌ 跳过 |
+| Step 4润色 | ✅ 执行 | ✅ 执行（核心） |
+| Step 5 Data Agent | ✅ 执行 | ❌ 跳过 |
+| Step 6收尾 | ✅ 执行 | ❌ 跳过 |
+
+### 使用场景
+
+1. **字数不足**：章节字数少于目标，需要扩写
+2. **质量问题**：章节存在质量问题，需要润色
+3. **风格调整**：章节风格需要调整
+4. **设定更新**：更新了角色/道具设定，需要同步章节
+
+### 示例
+
+```
+# 润色第50章（含扩写，若字数不足）
+/webnovel-write --refine 50
+
+# 仅润色第50章，不扩写
+/webnovel-write --refine 50 --polish-only
+
+# 优先扩写第50章
+/webnovel-write --refine 50 --expand
+```
+
+### 注意事项
+
+- --refine 模式不会更新 index.db 中的实体信息
+- --refine 模式不会重新生成章节摘要
+- 如需同步更新设定，需要手动执行 Data Agent
 
 ### Step 1：Context Agent（内置 Context Contract，生成直写执行包）
 
@@ -460,17 +542,50 @@ review_metrics 字段约束（当前工作流约定只传以下字段）：
 cat "${SKILL_ROOT}/references/polish-guide.md"
 cat "${SKILL_ROOT}/references/writing/typesetting.md"
 cat "${SKILL_ROOT}/references/writing-standards.md"
+cat "${SKILL_ROOT}/references/expansion-guide.md"
 ```
 
 执行顺序：
-1. 修复 `critical`（必须）
-2. 修复 `high`（不能修复则记录 deviation）
-3. 处理 `medium/low`（按收益择优）
-4. 执行 Anti-AI 与 No-Poison 全文终检（必须输出 `anti_ai_force_check: pass/fail`）
+1. **【新增】字数检查与扩写**：检查章节字数，若低于目标80%则执行扩写
+2. 修复 `critical`（必须）
+3. 修复 `high`（不能修复则记录 deviation）
+4. 处理 `medium/low`（按收益择优）
+5. 执行 Anti-AI 与 No-Poison 全文终检（必须输出 `anti_ai_force_check: pass/fail`）
+
+**【新增】字数检查与扩写流程**：
+
+```
+字数检查：
+- 目标字数：2000-2500 字（关键章/高潮章可更长）
+- 触发扩写：当前字数 < 目标字数 × 80%
+- 扩写上限：目标字数 × 20%
+
+扩写范围限制：
+- 开头（承接上文）：❌ 禁止扩写，位置：章节前 200-400 字
+- 中间（核心内容）：✅ 可以扩写
+- 结尾（引出下文）：❌ 禁止扩写，位置：章节后 100-200 字
+
+扩写执行：
+1. 计算需要扩写的字数
+2. 加载 expansion-guide.md 参考
+3. 定位可扩写段落（仅限中间部分）
+4. 执行扩写（遵守不增新设定原则）
+5. 检查扩写内容一致性
+6. 若有新细节，补充到设定文件
+7. 记录扩写变更
+
+扩写检查清单：
+- [ ] 扩写只针对中间部分，不涉及开头和结尾
+- [ ] 扩写只针对风景/内心/对话/动作/感官/场景细节
+- [ ] 扩写内容与已有设定一致
+- [ ] 扩写没有添加新角色/道具/势力
+- [ ] 扩写没有推动新剧情
+- [ ] 扩写后总字数在目标范围内
+```
 
 输出：
 - 润色后正文（覆盖章节文件）
-- 变更摘要（至少含：修复项、保留项、deviation、`anti_ai_force_check`）
+- 变更摘要（至少含：修复项、保留项、deviation、`anti_ai_force_check`、扩写记录）
 
 ### Step 5：Data Agent（状态与索引回写）
 

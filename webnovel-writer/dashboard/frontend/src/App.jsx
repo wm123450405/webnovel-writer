@@ -64,6 +64,8 @@ export default function App() {
             <main className="main-content">
                 {page === 'dashboard' && <DashboardPage data={projectInfo} key={refreshKey} />}
                 {page === 'entities' && <EntitiesPage key={refreshKey} />}
+                {page === 'powers' && <PowersPage key={refreshKey} />}
+                {page === 'items' && <ItemsPage key={refreshKey} />}
                 {page === 'graph' && <GraphPage key={refreshKey} />}
                 {page === 'chapters' && <ChaptersPage key={refreshKey} />}
                 {page === 'files' && <FilesPage />}
@@ -76,6 +78,8 @@ export default function App() {
 const NAV_ITEMS = [
     { id: 'dashboard', icon: '📊', label: '数据总览' },
     { id: 'entities', icon: '👤', label: '设定词典' },
+    { id: 'powers', icon: '⚡', label: '功法库' },
+    { id: 'items', icon: '🎁', label: '道具库' },
     { id: 'graph', icon: '🕸️', label: '关系图谱' },
     { id: 'chapters', icon: '📝', label: '章节一览' },
     { id: 'files', icon: '📁', label: '文档浏览' },
@@ -377,7 +381,184 @@ function EntitiesPage() {
 
 
 // ====================================================================
-// 页面 3：3D 宇宙关系图谱
+// 页面 3：功法库
+// ====================================================================
+
+function PowersPage() {
+    const [powers, setPowers] = useState([])
+    const [typeFilter, setTypeFilter] = useState('')
+    const [selected, setSelected] = useState(null)
+    const [detail, setDetail] = useState(null)
+
+    useEffect(() => {
+        fetchJSON('/api/powers').then(setPowers).catch(() => { })
+    }, [])
+
+    useEffect(() => {
+        if (selected) {
+            fetchJSON(`/api/powers/${selected.id}`).then(setDetail).catch(() => setDetail(null))
+        }
+    }, [selected])
+
+    const types = [...new Set(powers.map(p => p.power_type))].sort()
+    let filteredPowers = typeFilter ? powers.filter(p => p.power_type === typeFilter) : powers
+
+    return (
+        <>
+            <div className="page-header">
+                <h2>⚡ 功法库</h2>
+                <span className="card-badge badge-green">{filteredPowers.length} / {powers.length} 个功法</span>
+            </div>
+
+            <div className="filter-group">
+                <button className={`filter-btn ${typeFilter === '' ? 'active' : ''}`} onClick={() => setTypeFilter('')}>全部</button>
+                {types.map(t => (
+                    <button key={t} className={`filter-btn ${typeFilter === t ? 'active' : ''}`} onClick={() => setTypeFilter(t)}>{t}</button>
+                ))}
+            </div>
+
+            <div className="split-layout">
+                <div className="split-main">
+                    <div className="card">
+                        <div className="table-wrap">
+                            <table className="data-table">
+                                <thead><tr><th>名称</th><th>类型</th><th>层级</th><th>境界</th></tr></thead>
+                                <tbody>
+                                    {filteredPowers.map(p => (
+                                        <tr
+                                            key={p.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            className={`entity-row ${selected?.id === p.id ? 'selected' : ''}`}
+                                            onKeyDown={evt => (evt.key === 'Enter' || evt.key === ' ') && (evt.preventDefault(), setSelected(p))}
+                                            onClick={() => setSelected(p)}
+                                        >
+                                            <td className="entity-name">{p.name}</td>
+                                            <td><span className="card-badge badge-blue">{p.power_type}</span></td>
+                                            <td><span className={p.tier === '核心' ? 'card-badge badge-purple' : p.tier === '重要' ? 'card-badge badge-amber' : ''}>{p.tier}</span></td>
+                                            <td>{p.cultivation_level || '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                {selected && detail && (
+                    <div className="split-side">
+                        <div className="card">
+                            <div className="card-header">
+                                <span className="card-title">{detail.name}</span>
+                                <span className="card-badge badge-purple">{detail.power_type}</span>
+                            </div>
+                            <div className="entity-detail">
+                                <p><strong>ID：</strong><code>{detail.id}</code></p>
+                                <p><strong>类型：</strong>{detail.power_type}</p>
+                                <p><strong>层级：</strong>{detail.tier}</p>
+                                <p><strong>属性：</strong>{detail.element || '—'}</p>
+                                <p><strong>境界要求：</strong>{detail.cultivation_level || '—'}</p>
+                                {detail.content && <div className="entity-desc" style={{marginTop: 12}}>{detail.content}</div>}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </>
+    )
+}
+
+
+// ====================================================================
+// 页面 4：道具库（包含丹药）
+// ====================================================================
+
+function ItemsPage() {
+    const [items, setItems] = useState([])
+    const [typeFilter, setTypeFilter] = useState('')
+    const [selected, setSelected] = useState(null)
+    const [detail, setDetail] = useState(null)
+
+    useEffect(() => {
+        fetchJSON('/api/items').then(setItems).catch(() => { })
+    }, [])
+
+    useEffect(() => {
+        if (selected) {
+            fetchJSON(`/api/items/${selected.id}`).then(setDetail).catch(() => setDetail(null))
+        }
+    }, [selected])
+
+    const types = [...new Set(items.map(i => i.category))].sort()
+    let filteredItems = typeFilter ? items.filter(i => i.category === typeFilter) : items
+
+    return (
+        <>
+            <div className="page-header">
+                <h2>🎁 道具库</h2>
+                <span className="card-badge badge-green">{filteredItems.length} / {items.length} 个道具</span>
+            </div>
+
+            <div className="filter-group">
+                <button className={`filter-btn ${typeFilter === '' ? 'active' : ''}`} onClick={() => setTypeFilter('')}>全部</button>
+                {types.map(t => (
+                    <button key={t} className={`filter-btn ${typeFilter === t ? 'active' : ''}`} onClick={() => setTypeFilter(t)}>{t}</button>
+                ))}
+            </div>
+
+            <div className="split-layout">
+                <div className="split-main">
+                    <div className="card">
+                        <div className="table-wrap">
+                            <table className="data-table">
+                                <thead><tr><th>名称</th><th>类别</th><th>层级</th><th>稀有度</th></tr></thead>
+                                <tbody>
+                                    {filteredItems.map(i => (
+                                        <tr
+                                            key={i.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            className={`entity-row ${selected?.id === i.id ? 'selected' : ''}`}
+                                            onKeyDown={evt => (evt.key === 'Enter' || evt.key === ' ') && (evt.preventDefault(), setSelected(i))}
+                                            onClick={() => setSelected(i)}
+                                        >
+                                            <td className="entity-name">{i.name}</td>
+                                            <td><span className="card-badge badge-blue">{i.category}</span></td>
+                                            <td><span className={i.tier === '核心' ? 'card-badge badge-purple' : i.tier === '重要' ? 'card-badge badge-amber' : ''}>{i.tier}</span></td>
+                                            <td><span className={i.rarity === '极品' ? 'card-badge badge-amber' : i.rarity === '仙品' ? 'card-badge badge-purple' : ''}>{i.rarity || '—'}</span></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                {selected && detail && (
+                    <div className="split-side">
+                        <div className="card">
+                            <div className="card-header">
+                                <span className="card-title">{detail.name}</span>
+                                <span className="card-badge badge-blue">{detail.category}</span>
+                            </div>
+                            <div className="entity-detail">
+                                <p><strong>ID：</strong><code>{detail.id}</code></p>
+                                <p><strong>类别：</strong>{detail.category}</p>
+                                <p><strong>层级：</strong>{detail.tier}</p>
+                                <p><strong>稀有度：</strong>{detail.rarity || '—'}</p>
+                                {detail.content && <div className="entity-desc" style={{marginTop: 12}}>{detail.content}</div>}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </>
+    )
+}
+
+
+// ====================================================================
+// 页面 5：3D 宇宙关系图谱
 // ====================================================================
 
 function GraphPage() {
@@ -442,7 +623,7 @@ function GraphPage() {
 
 
 // ====================================================================
-// 页面 4：章节一览
+// 页面 6：章节一览
 // ====================================================================
 
 function ChaptersPage() {
@@ -485,7 +666,7 @@ function ChaptersPage() {
 
 
 // ====================================================================
-// 页面 5：文档浏览
+// 页面 7：文档浏览
 // ====================================================================
 
 function FilesPage() {
@@ -544,7 +725,7 @@ function FilesPage() {
 
 
 // ====================================================================
-// 页面 6：追读力
+// 页面 8：追读力
 // ====================================================================
 
 function ReadingPowerPage() {

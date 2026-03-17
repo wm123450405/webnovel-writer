@@ -117,15 +117,24 @@ const FULL_DATA_DOMAINS = [
 function DashboardPage({ data }) {
     if (!data) return <div className="loading">加载中…</div>
 
+    const [entityStats, setEntityStats] = useState([])
+
+    useEffect(() => {
+        fetchJSON('/api/entities/statistics').then(setEntityStats).catch(() => { })
+    }, [])
+
     const info = data.project_info || {}
     const progress = data.progress || {}
     const protagonist = data.protagonist_state || {}
-    const strand = data.strand_tracker || {}
+    const strand = data.plot_threads?.strand_tracker || data.strand_tracker || {}
     const foreshadowing = data.plot_threads?.foreshadowing || []
 
     const totalWords = progress.total_words || 0
     const targetWords = info.target_words || 2000000
     const pct = targetWords > 0 ? Math.min(100, (totalWords / targetWords * 100)).toFixed(1) : 0
+
+    // 从统计数据中计算龙套角色数量
+    const minorCount = entityStats.find(s => s.tier === '装饰' && s.type === '角色')?.count || 0
 
     const unresolvedForeshadow = foreshadowing.filter(f => {
         const s = (f.status || '').toLowerCase()
@@ -176,6 +185,12 @@ function DashboardPage({ data }) {
                         {unresolvedForeshadow.length}
                     </span>
                     <span className="stat-sub">总计 {foreshadowing.length} 条伏笔</span>
+                </div>
+
+                <div className="card stat-card">
+                    <span className="stat-label">龙套角色</span>
+                    <span className="stat-value" style={{ color: '#757575' }}>{minorCount}</span>
+                    <span className="stat-sub">推动剧情的龙套角色</span>
                 </div>
             </div>
 
@@ -233,6 +248,7 @@ function DashboardPage({ data }) {
 function EntitiesPage() {
     const [entities, setEntities] = useState([])
     const [typeFilter, setTypeFilter] = useState('')
+    const [tierFilter, setTierFilter] = useState('')
     const [selected, setSelected] = useState(null)
     const [changes, setChanges] = useState([])
 
@@ -247,7 +263,15 @@ function EntitiesPage() {
     }, [selected])
 
     const types = [...new Set(entities.map(e => e.type))].sort()
-    const filteredEntities = typeFilter ? entities.filter(e => e.type === typeFilter) : entities
+    const tiers = [...new Set(entities.map(e => e.tier))].sort()
+    let filteredEntities = typeFilter ? entities.filter(e => e.type === typeFilter) : entities
+    filteredEntities = tierFilter ? filteredEntities.filter(e => e.tier === tierFilter) : filteredEntities
+
+    // 辅助函数：获取 tier 显示文本
+    const getTierDisplay = (tier) => {
+        if (tier === '装饰') return '龙套'
+        return tier
+    }
 
     return (
         <>
@@ -260,6 +284,16 @@ function EntitiesPage() {
                 <button className={`filter-btn ${typeFilter === '' ? 'active' : ''}`} onClick={() => setTypeFilter('')}>全部</button>
                 {types.map(t => (
                     <button key={t} className={`filter-btn ${typeFilter === t ? 'active' : ''}`} onClick={() => setTypeFilter(t)}>{t}</button>
+                ))}
+            </div>
+
+            <div className="filter-group">
+                <span className="filter-label">层级:</span>
+                <button className={`filter-btn ${tierFilter === '' ? 'active' : ''}`} onClick={() => setTierFilter('')}>全部</button>
+                {tiers.map(t => (
+                    <button key={t} className={`filter-btn ${tierFilter === t ? 'active' : ''} ${t === '装饰' ? 'filter-btn-minor' : ''}`} onClick={() => setTierFilter(t)}>
+                        {getTierDisplay(t)}
+                    </button>
                 ))}
             </div>
 
@@ -283,7 +317,7 @@ function EntitiesPage() {
                                                 {e.canonical_name} {e.is_protagonist ? '⭐' : ''}
                                             </td>
                                             <td><span className="card-badge badge-blue">{e.type}</span></td>
-                                            <td>{e.tier}</td>
+                                            <td><span className={e.tier === '装饰' ? 'card-badge badge-gray' : ''}>{getTierDisplay(e.tier)}</span></td>
                                             <td>{e.first_appearance || '—'}</td>
                                             <td>{e.last_appearance || '—'}</td>
                                         </tr>
@@ -299,7 +333,7 @@ function EntitiesPage() {
                         <div className="card">
                             <div className="card-header">
                                 <span className="card-title">{selected.canonical_name}</span>
-                                <span className="card-badge badge-purple">{selected.tier}</span>
+                                <span className="card-badge badge-purple">{getTierDisplay(selected.tier)}</span>
                             </div>
                             <div className="entity-detail">
                                 <p><strong>类型：</strong>{selected.type}</p>

@@ -130,6 +130,20 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
                 raise HTTPException(404, "实体不存在")
             return dict(row)
 
+    @app.get("/api/entities/statistics")
+    def get_entity_statistics():
+        """获取实体统计（按 tier 和 type 分组）"""
+        with closing(_get_db()) as conn:
+            q = """
+                SELECT tier, type, COUNT(*) as count
+                FROM entities
+                WHERE is_archived = 0
+                GROUP BY tier, type
+                ORDER BY tier, type
+            """
+            rows = conn.execute(q).fetchall()
+            return [dict(r) for r in rows]
+
     @app.get("/api/relationships")
     def list_relationships(entity: Optional[str] = None, limit: int = 200):
         with closing(_get_db()) as conn:

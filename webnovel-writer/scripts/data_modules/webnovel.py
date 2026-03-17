@@ -256,6 +256,12 @@ def cmd_update_character_card(args: argparse.Namespace) -> int:
         char_name = entity.get("name", char_id)
         first_appearance = entity.get("first_appearance", 0)
         last_appearance = entity.get("last_appearance", 0)
+        tier = entity.get("tier", "次要")
+
+        # 龙套角色（tier="装饰"）跳过创建完整角色卡
+        if tier == "装饰":
+            print(f"跳过龙套角色（装饰）: {char_name}")
+            continue
 
         # 确定角色卡文件路径
         card_path = None
@@ -315,6 +321,202 @@ def cmd_update_character_card(args: argparse.Namespace) -> int:
         print(f"共更新 {len(updated_cards)} 个角色卡")
     else:
         print("没有角色卡需要更新")
+
+    return 0
+
+
+def cmd_update_minor_characters(args: argparse.Namespace) -> int:
+    """更新龙套角色库（轻量级记录）"""
+    import json
+    import re
+    from pathlib import Path
+
+    project_root = _resolve_root(args.project_root)
+    chapter = args.chapter
+
+    # 导入需要的模块
+    from data_modules.state_manager import StateManager
+    from data_modules.index_manager import IndexManager
+    from data_modules.config import get_config
+
+    config = get_config(project_root)
+    sm = StateManager(config)
+    im = IndexManager(config)
+
+    # 获取本章出场角色
+    chapter_data = im.get_chapter(chapter)
+    if not chapter_data:
+        print(f"未找到章节 {chapter} 的数据")
+        return 1
+
+    characters = chapter_data.get("characters", [])
+    if isinstance(characters, str):
+        try:
+            characters = json.loads(characters)
+        except:
+            characters = []
+
+    if not characters:
+        print(f"章节 {chapter} 没有角色出场")
+        return 0
+
+    # 获取设定集目录
+    settings_dir = project_root / "设定集"
+    minor_dir = settings_dir / "角色库" / "龙套角色"
+    minor_dir.mkdir(parents=True, exist_ok=True)
+
+    def sanitize_filename(name: str) -> str:
+        """清理文件名，移除非法字符"""
+        # 替换不能用于文件名的字符
+        name = re.sub(r'[<>:"/\\|?*]', '', name)
+        # 限制长度
+        return name[:50] if len(name) > 50 else name
+
+    def generate_minor_filename(entity: dict, relationships: list) -> str:
+        """
+        生成龙套角色的文件名
+        优先使用：关系角色 + 关系描述，如 "温家车夫"、"秦鹏重病的父亲"
+        回退：使用角色名
+        """
+        char_name = entity.get("name", "")
+        desc = entity.get("desc", "")
+
+        # 尝试从关系中提取
+        for rel in relationships:
+            to_entity = rel.get("to_entity", "")
+            rel_type = rel.get("type", "")
+            description = rel.get("description", "")
+
+            if to_entity and rel_type:
+                # 优先使用描述，如 "车夫"、"父亲"、"管家"
+                if description:
+                    return f"{to_entity}{description}"
+                # 其次使用关系类型
+                return f"{to_entity}{rel_type}"
+
+        # 尝试从角色描述中提取身份描述
+        if desc:
+            # 提取常见的身份描述词
+            identity_keywords = ["车夫", "管家", "父亲", "母亲", "兄长", "弟弟", "妹妹", "师父", "徒弟",
+                               "大夫", "商人", "伙计", "小二", "丫鬟", "婢女", "护卫", "随从",
+                               "村民", "老者", "少年", "中年人", "道士", "和尚", "书生"]
+            for keyword in identity_keywords:
+                if keyword in desc:
+                    return f"{char_name}{keyword}"
+
+        # 回退：直接使用角色名
+        return char_name
+
+    updated_count = 0
+
+    for char_id in characters:
+        # 获取角色详细信息
+        entity = sm.get_entity(char_id, "角色")
+        if not entity:
+            entity = sm.get_entity(char_id)
+            if entity and entity.get("type") != "角色":
+                entity = None
+
+        if not entity:
+            continue
+
+        char_name = entity.get("name", char_id)
+        tier = entity.get("tier", "次要")
+        first_appearance = entity.get("first_appearance", 0)
+        last_appearance = entity.get("last_appearance", 0)
+        desc = entity.get("desc", "")
+
+        # 只处理龙套角色（tier="装饰"）
+        if tier != "装饰":
+            continue
+
+        # 获取角色关系
+        try:
+            relationships = im.get_entity_relationships(char_id, "from")
+        except:
+            relationships = []
+
+        # 生成文件名
+        filename = generate_minor_filename(entity, relationships)
+        filename = sanitize_filename(filename)
+
+        if not filename:
+            filename = char_name
+
+        # 每个角色一个文件
+        record_file = minor_dir / f"{filename}.md"
+
+        # 读取现有内容或创建新文件
+        if record_file.exists():
+            content = record_file.read_text(encoding="utf-8")
+        else:
+            content = f"# {char_name}\n\n"
+
+        # 检查是否已存在该角色的记录（通过首次出场章节判断）
+        if "首次出场" not in content:
+            # 添加新角色基本信息
+            content += f"""## 基本信息
+
+- **角色名**: {char_name}
+- **首次出场**: 第{chapter}章
+- **最后出场**: 第{chapter}章
+- **出场章节**: [{chapter}]
+- **角色描述**: {desc}
+
+## 出场记录
+
+| 章节 | 出场描述 |
+|------|---------|
+| 第{chapter}章 | {desc} |
+
+"""
+        else:
+            # 更新已有记录
+            # 更新最后出场章节
+            content = re.sub(
+                r'(- \*\*最后出场\*\*: )第\d+章',
+                f'\\1第{chapter}章',
+                content
+            )
+            # 更新出场章节列表
+            old_chapters = re.search(r'\*\*出场章节\*\*: \[(.*?)\]', content)
+            if old_chapters:
+                existing_chapters = old_chapters.group(1)
+                if str(chapter) not in existing_chapters:
+                    new_chapters = f"{existing_chapters}, {chapter}"
+                    content = content.replace(
+                        f"**出场章节**: [{existing_chapters}]",
+                        f"**出场章节**: [{new_chapters}]"
+                    )
+            else:
+                content = content.replace(
+                    "**出场章节**: [",
+                    f"**出场章节**: [{chapter}, "
+                )
+
+            # 添加新的出场记录到表格
+            if f"| 第{chapter}章 |" not in content:
+                # 找到表格位置插入新行
+                table_line = f"| 第{chapter}章 | {desc} |"
+                content = content.replace(
+                    "| 章节 | 出场描述 |",
+                    f"| 章节 | 出场描述 |\n|------|---------|"
+                )
+                content = content.replace(
+                    "| 章节 | 出场描述 |\n|------|---------|",
+                    table_line
+                )
+
+        # 写入更新后的内容
+        record_file.write_text(content, encoding="utf-8")
+
+        updated_count += 1
+        print(f"已更新龙套角色记录: {char_name} -> {record_file.name}")
+
+    if updated_count > 0:
+        print(f"共更新 {updated_count} 个龙套角色记录")
+    else:
+        print("本章没有新出场的龙套角色需要记录")
 
     return 0
 
@@ -487,6 +689,11 @@ def main() -> None:
     p_character_card = sub.add_parser("update-character-card", help="更新角色卡出场记录")
     p_character_card.add_argument("--chapter", type=int, required=True, help="目标章节号")
     p_character_card.set_defaults(func=cmd_update_character_card)
+
+    # 龙套角色库更新
+    p_minor_chars = sub.add_parser("update-minor-characters", help="更新龙套角色库")
+    p_minor_chars.add_argument("--chapter", type=int, required=True, help="目标章节号")
+    p_minor_chars.set_defaults(func=cmd_update_minor_characters)
 
     # 兼容：允许 `--project-root` 出现在任意位置（减少 agents/skills 拼命令的出错率）
     from .cli_args import normalize_global_project_root

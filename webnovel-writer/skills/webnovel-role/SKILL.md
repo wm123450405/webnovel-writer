@@ -15,6 +15,22 @@ allowed-tools: Read Write Edit Grep Bash Task AskUserQuestion
 - 检查所有出场章节中角色出场内容是否符合新设定
 - 若有不符合新设定的，需要修改那些不符合设定的章节内容
 
+## 角色层级说明
+
+角色按重要程度分为以下层级：
+
+| 层级 | 说明 | 角色卡管理 |
+|------|------|-----------|
+| **核心** | 主角等主线关键人物 | 完整角色卡（主角卡） |
+| **重要** | 主要配角、重要反派 | 完整角色卡 |
+| **次要** | 推动特定剧情，有一定描写 | 简化角色卡 |
+| **装饰** | 龙套角色，仅推动剧情，无需重点描写 | **轻量级记录**（龙套角色库） |
+
+**龙套角色（装饰）特点**：
+- 仅用于推动剧情，不需要详细的性格、动机、关系设定
+- 不创建完整角色卡，自动记录到 `设定集/角色库/龙套角色/` 目录
+- 章节写作完成后自动检测并记录新出场的龙套角色
+
 ## Project Root Guard（必须先确认）
 
 - Claude Code 的"工作区根目录"不一定等于"书项目根目录"。常见结构：工作区为 `D:\wk\xiaoshuo`，书项目为 `D:\wk\xiaoshuo\凡人资本论`。
@@ -113,6 +129,12 @@ grep -r "角色名" "$PROJECT_ROOT/设定集/" 2>/dev/null
 ```bash
 python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" entity add 角色名 --type 角色 --tier 次要 --desc "角色描述"
 ```
+
+**注意**：如果需要将角色标记为龙套角色（仅推动剧情，无需重点描写），使用 `--tier 装饰`：
+```bash
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" entity add 角色名 --type 角色 --tier 装饰 --desc "角色描述"
+```
+此角色将记录到龙套角色库，无需创建完整角色卡。
 
 或使用 state_manager 直接操作：
 

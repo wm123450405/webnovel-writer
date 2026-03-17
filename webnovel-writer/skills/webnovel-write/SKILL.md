@@ -411,6 +411,7 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" upd
      - 出场章节列表：添加当前章节
      - 本章出场摘要：提取本章中角色出场的内容摘要
 3. 如果角色卡文件不存在或格式不匹配，跳过该角色的更新
+4. **龙套角色（tier="装饰"）跳过创建完整角色卡**，由后续 Step 5L 处理
 
 **【新增】道具卡出场记录更新（K. 更新道具卡）**：
 在角色卡更新之后，必须更新设定集中的道具卡出场记录：
@@ -430,6 +431,26 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" upd
      - 出场章节列表：添加当前章节
      - 本章出场摘要：提取本章中道具出场的内容摘要
 3. 如果道具卡文件不存在或格式不匹配，跳过该道具的更新
+
+**【新增】龙套角色库更新（L. 更新龙套角色库）**：
+在角色卡和道具卡更新之后，更新龙套角色库（轻量级记录，无需完整角色卡）：
+
+```bash
+# L. 更新龙套角色库
+python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" update-minor-characters --chapter ${chapter_num}
+```
+
+更新逻辑：
+1. 从 `index.db` 获取本章出场的所有角色列表
+2. 筛选出 tier="装饰" 的龙套角色
+3. 对每个龙套角色：
+   - 读取或创建 `设定集/角色库/龙套角色/第{chapter}章.md`
+   - 追加角色出场记录：
+     - 首次出场章节
+     - 最后出场章节
+     - 出场章节列表
+     - 角色描述
+4. 如果角色已存在，更新"最后出场"和"出场章节列表"
 
 `--scenes` 来源优先级（G/H 步骤共用）：
 1. 优先从 `index.db` 的 scenes 记录获取（Step F 写入的结果）

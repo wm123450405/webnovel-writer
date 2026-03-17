@@ -99,6 +99,32 @@ cat "${SKILL_ROOT}/references/pacing-control.md"
 cat "$PROJECT_ROOT/.webnovel/state.json"
 ```
 
+### 【新增】加载地图设定集
+
+```bash
+# 获取本章涉及的地图
+# 1. 首先确定本章发生的地点
+# 2. 然后加载对应的地图文件
+
+# 列出所有可用地图
+find "$PROJECT_ROOT/设定集/地图库" -name "*.md" -type f 2>/dev/null
+
+# 加载大陆地图
+cat "$PROJECT_ROOT/设定集/地图库/大陆地图/"*.md 2>/dev/null || echo "无大陆地图"
+
+# 加载城镇地图
+cat "$PROJECT_ROOT/设定集/地图库/城镇地图/"*.md 2>/dev/null || echo "无城镇地图"
+
+# 加载院落地图
+cat "$PROJECT_ROOT/设定集/地图库/院落地图/"*.md 2>/dev/null || echo "无院落地图"
+
+# 加载副本地图
+cat "$PROJECT_ROOT/设定集/地图库/副本地图/"*.md 2>/dev/null || echo "无副本地图"
+
+# 加载势力范围
+cat "$PROJECT_ROOT/设定集/地图库/势力范围/"*.md 2>/dev/null || echo "无势力范围"
+```
+
 ## Step 3: 并行调用检查员（Task）
 
 **调用约束**:
@@ -110,6 +136,7 @@ cat "$PROJECT_ROOT/.webnovel/state.json"
 - `continuity-checker`
 - `ooc-checker`
 - `reader-pull-checker`
+- `map-consistency-checker`
 
 **Full 追加**:
 - `high-point-checker`

@@ -10,8 +10,11 @@ allowed-tools: Read Write Edit Grep Bash Task
 
 - 以稳定流程产出可发布章节：优先使用 `正文/第{NNNN}章-{title_safe}.md`，无标题时回退 `正文/第{NNNN}章.md`。
 - 默认章节字数目标：2000-2500（用户或大纲明确覆盖时从其约定）。
-- 保证审查、润色、数据回写完整闭环，避免“写完即丢上下文”。
+- 保证审查、润色、数据回写完整闭环，避免”写完即丢上下文”。
 - 输出直接可被后续章节消费的结构化数据：`review_metrics`、`summaries`、`chapter_meta`。
+- **【新增】支持外部文件作为章节大纲**：`--outline-file <大纲文件>`
+- **【新增】支持额外参考文件**：`--reference <参考文件1> [--reference <参考文件2> ...]`
+- **【新增】风格偏离检测**：当参考文件风格与项目整体风格差异超过 30% 时输出警告
 
 ## 执行原则
 
@@ -26,6 +29,28 @@ allowed-tools: Read Write Edit Grep Bash Task
 - `/webnovel-write`：Step 1 → 2A → 2B → 3 → 4 → 5 → 6
 - `/webnovel-write --fast`：Step 1 → 2A → 3 → 4 → 5 → 6（跳过 2B）
 - `/webnovel-write --minimal`：Step 1 → 2A → 3（仅3个基础审查）→ 4 → 5 → 6
+
+### 命令参数
+
+```
+/webnovel-write [选项] [章节号]
+/webnovel-write --outline-file <大纲文件> [章节号]
+/webnovel-write --reference <参考文件1> --reference <参考文件2> [章节号]
+/webnovel-write --outline-file <大纲文件> --reference <参考文件1> [章节号]
+```
+
+**参数说明**：
+- `章节号`：要写作的章节号（可选，默认使用最新章节号+1）
+- `--outline-file`：指定外部文件作为章节大纲（可替代或补充原有大纲）
+- `--reference`：指定额外参考文件用于写作风格指导（可多个）
+
+**示例**：
+```
+/webnovel-write 100
+/webnovel-write --outline-file 本章大纲.md 100
+/webnovel-write --outline-file 本章大纲.docx --reference 风格参考.md 100
+/webnovel-write --reference 参考1.md --reference 参考2.png --reference 参考3.mp4 100
+```
 
 最小产物（所有模式）：
 - `正文/第{NNNN}章-{title_safe}.md` 或 `正文/第{NNNN}章.md`
@@ -99,6 +124,9 @@ allowed-tools: Read Write Edit Grep Bash Task
   - 触发：场景空泛、空间方位不清、切场突兀。
 - `references/writing/desire-description.md`
   - 触发：主角目标弱、欲望驱动力不足。
+- `references/writing/movement-constraints.md`
+  - 用途：Step 1 角色移动、行动、行走与地图设定一致性约束。
+  - 触发：Step 1 写作时涉及角色移动场景必读。
 
 ## 工具策略（按需）
 
@@ -113,6 +141,7 @@ allowed-tools: Read Write Edit Grep Bash Task
 必须做：
 - 解析真实书项目根（book project_root）：必须包含 `.webnovel/state.json`。
 - 校验核心输入：`大纲/总纲.md`、`${CLAUDE_PLUGIN_ROOT}/scripts/extract_chapter_context.py` 存在。
+- 解析用户命令参数（--outline-file, --reference）
 - 规范化变量：
   - `WORKSPACE_ROOT`：Claude Code 打开的工作区根目录（可能是书项目的父目录，例如 `D:\wk\xiaoshuo`）
   - `PROJECT_ROOT`：真实书项目根目录（必须包含 `.webnovel/state.json`，例如 `D:\wk\xiaoshuo\凡人资本论`）
@@ -120,21 +149,52 @@ allowed-tools: Read Write Edit Grep Bash Task
   - `SCRIPTS_DIR`：脚本目录（固定 `${CLAUDE_PLUGIN_ROOT}/scripts`）
   - `chapter_num`：当前章号（整数）
   - `chapter_padded`：四位章号（如 `0007`）
+  - `outline_file`：外部大纲文件路径（若提供）
+  - `reference_files`：参考文件列表（若提供）
+
+**【新增】解析外部大纲文件和参考文件**：
+
+```bash
+# 解析命令参数
+# 示例: /webnovel-write --outline-file 本章大纲.md --reference 风格1.md --reference 风格2.md 100
+
+# 提取 outline-file 参数
+if [[ “$@” == *”--outline-file”* ]]; then
+    outline_file=$(echo “$@” | sed -n 's/.*--outline-file \([^ ]*\).*/\1/p')
+    echo “外部大纲文件: ${outline_file}”
+fi
+
+# 提取 reference 参数（可能有多个）
+if [[ “$@” == *”--reference”* ]]; then
+    reference_files=$(echo “$@” | sed -n 's/.*--reference \([^ ]*\).*/\1/g')
+    echo “参考文件: ${reference_files}”
+fi
+```
+
+**支持的外部文件格式**：
+| 文件类型 | 扩展名 | 处理方式 |
+|---------|-------|---------|
+| Markdown | .md | 解析 YAML frontmatter 或正文内容 |
+| Word 文档 | .docx | 使用 python-docx 提取文本 |
+| 图片 | .jpg, .jpeg, .png | 使用 OCR 提取文字或提示用户 |
+| 视频 | .mp4, .avi, .mkv | 提取字幕或提示用户 |
 
 环境设置（bash 命令执行前）：
 ```bash
-export WORKSPACE_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
-export SCRIPTS_DIR="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT is required}/scripts"
-export SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT is required}/skills/webnovel-write"
+export WORKSPACE_ROOT=”${CLAUDE_PROJECT_DIR:-$PWD}”
+export SCRIPTS_DIR=”${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT is required}/scripts”
+export SKILL_ROOT=”${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT is required}/skills/webnovel-write”
 
-python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${WORKSPACE_ROOT}" preflight
-export PROJECT_ROOT="$(python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${WORKSPACE_ROOT}" where)"
+python -X utf8 “${SCRIPTS_DIR}/webnovel.py” --project-root “${WORKSPACE_ROOT}” preflight
+export PROJECT_ROOT=”$(python -X utf8 “${SCRIPTS_DIR}/webnovel.py” --project-root “${WORKSPACE_ROOT}” where)”
 ```
 
 **硬门槛**：`preflight` 必须成功。它统一校验 `CLAUDE_PLUGIN_ROOT` 派生出的 `SKILL_ROOT` / `SCRIPTS_DIR`、`webnovel.py`、`extract_chapter_context.py` 和解析出的 `PROJECT_ROOT`。任一失败都立即阻断。
 
 输出：
-- “已就绪输入”与“缺失输入”清单；缺失则阻断并提示先补齐。
+- “已就绪输入”与”缺失输入”清单；缺失则阻断并提示先补齐。
+- 外部大纲文件内容（若提供）
+- 参考文件列表（若提供）
 
 ### Step 0.5：工作流断点记录（best-effort，不阻断）
 
@@ -168,6 +228,107 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" wor
   - 若用户提供了当前章节的故事梗概，将其作为写作参考
   - 将梗概保存到：`${PROJECT_ROOT}/.webnovel/tmp/chapter_${chapter}_synopsis.md`
   - 梗概内容将用于后续 Step 5.5 的大纲检查与调整
+- **【新增】外部大纲文件处理**：
+  - 若用户提供了 `--outline-file` 参数，使用外部文件作为本章大纲
+  - 外部大纲文件格式：
+    ```markdown
+    # 第100章：章节标题
+
+    ## 目标
+    主角需要完成什么
+
+    ## 情节点
+    - 点1
+    - 点2
+
+    ## 角色
+    - 角色A
+    - 角色B
+
+    ## 道具
+    - 道具A
+
+    ## 场景
+    场景描述
+
+    ## 钩子
+    - 钩子1
+    ```
+  - 将外部大纲内容加载到 Context Agent
+  - 外部大纲与原大纲的关系：
+    - 若外部大纲存在，优先使用外部大纲
+    - 外部大纲作为原大纲的补充或替代
+  - 外部大纲保存到：`${PROJECT_ROOT}/.webnovel/tmp/chapter_${chapter}_external_outline.md`
+- **【新增】参考文件处理**：
+  - 若用户提供了 `--reference` 参数，将参考文件作为写作风格指导
+  - 参考文件支持格式：Markdown、Word、图片、视频
+  - **风格偏离检测**：当参考文件风格与项目整体风格差异超过 30% 时输出警告
+    ```python
+    def check_style_deviation(reference_text: str, project_style: dict) -> float:
+        """计算参考文件风格与项目风格的偏离度，返回 0-1，>0.3 输出警告"""
+        ref_words = reference_text.split()
+        ref_avg_word_len = sum(len(w) for w in ref_words) / max(len(ref_words), 1)
+        ref_sentence_count = reference_text.count('。') + reference_text.count('！') + reference_text.count('？')
+        ref_avg_sent_len = len(ref_words) / max(ref_sentence_count, 1)
+
+        style_score = project_style.get('avg_word_length', 4.5)
+        sent_score = project_style.get('avg_sentence_length', 20)
+
+        word_deviation = abs(ref_avg_word_len - style_score) / style_score
+        sent_deviation = abs(ref_avg_sent_len - sent_score) / sent_score
+
+        deviation = (word_deviation + sent_deviation) / 2
+        return deviation
+
+    # 使用示例
+    if deviation > 0.3:
+        print("⚠️ 警告：参考文件风格与项目整体风格偏离度为 {:.1%}，可能影响一致性".format(deviation))
+    ```
+  - 参考文件内容加载到 Context Agent，作为写作风格参考
+  - 参考文件不得与项目总体写作风格脱离太多（>30% 偏离会警告）
+- **【新增】地图设定集信息加载**：
+  - 加载本章涉及的所有地图设定（从 `设定集/地图库/` 目录）
+  - 获取当前章节发生的地点所属的地图信息：
+    - 大陆地图：位置关系、城镇分布、道路网络
+    - 城镇地图：城内布局、街道、区域
+    - 院落地图：建筑内部结构、房间分布
+    - 副本地图：副本结构、区域划分
+  - 加载地图的命令：
+    ```bash
+    # 获取项目中的所有地图
+    find "$PROJECT_ROOT/设定集/地图库" -name "*.md" -type f
+
+    # 获取特定地图内容
+    cat "$PROJECT_ROOT/设定集/地图库/大陆地图/大陆名.md"
+    cat "$PROJECT_ROOT/设定集/地图库/城镇地图/城镇名.md"
+    cat "$PROJECT_ROOT/设定集/地图库/院落地图/院落名.md"
+    cat "$PROJECT_ROOT/设定集/地图库/副本地图/副本名.md"
+    ```
+- **【新增】角色移动与行动约束**：
+  - 根据地图设定约束角色移动：
+    - **距离约束**：角色移动距离需符合地图标注的相对位置
+      - 城镇内移动：通常步行 10-30 分钟/公里
+      - 城际移动：按道路距离和交通工具计算
+      - 御剑/飞行：按境界等级和速度计算
+    - **方向约束**：移动方向需与地图方向一致
+      - 东西南北方向需明确
+      - 位置关系（如"城东"、"城西"）需与地图对应
+    - **时间约束**：到达时间需符合逻辑
+      - 普通步行：一时辰约 20-30 里
+      - 快马：一时辰约 80-100 里
+      - 御剑飞行：按境界（筑基日行千里，金丹日行万里）
+    - **路径约束**：两点间移动需有合理路径
+      - 不能直接穿越障碍（山脉、湖泊、禁区）
+      - 需遵循道路网络
+  - **禁止事项**：
+    - 禁止出现"从东门到西门只需片刻"（距离不合理）
+    - 禁止"瞬间移动"除非有传送阵/瞬移技能
+    - 禁止方向错误（如城东写成了城西）
+    - 禁止跳过必经路径（如穿越山脉不说明如何穿越）
+- **【新增】地图设定在写作执行包中的体现**：
+  - 在"不可变事实清单"中加入地图位置信息
+  - 在"禁止事项"中加入移动约束
+  - 在写作时需要明确标注：起点、终点、距离、时间、方式
 - **【新增】角色首次出场描写指导**：
   - 本章出场角色列表（含是否是首次出场）
   - 首次出场角色：必须重点描写，包括外貌、气质、声音等特点
@@ -482,7 +643,9 @@ Step 5 失败隔离规则：
 
 ### Step 5.5：章节完成后大纲检查与调整（条件执行）
 
-**触发条件**：当用户提供了当前章节的故事梗概时执行
+**触发条件**：当用户提供了以下任一条件时执行
+- 用户提供了当前章节的故事梗概（--outline-file）
+- 用户提供了外部大纲文件（--outline-file）
 
 **执行时机**：在 Step 5（Data Agent）完成后，Step 6（Git 备份）之前
 
@@ -496,26 +659,42 @@ Step 5 失败隔离规则：
 
    # 获取本章详细大纲
    cat "${PROJECT_ROOT}/大纲/章纲/第${chapter_padded}章.md" || echo "无章纲"
+
+   # 【新增】获取外部大纲文件（若提供）
+   cat "${PROJECT_ROOT}/.webnovel/tmp/chapter_${chapter_padded}_external_outline.md" || echo "无外部大纲"
    ```
 
-2. **对比用户梗概与原大纲**：
+2. **对比用户梗概/外部大纲与原大纲**：
    - 用户提供的故事梗概存储在：`${PROJECT_ROOT}/.webnovel/tmp/chapter_${chapter_padded}_synopsis.md`
+   - 外部大纲文件存储在：`${PROJECT_ROOT}/.webnovel/tmp/chapter_${chapter_padded}_external_outline.md`
    - 对比内容差异点：
      - 情节走向是否一致
      - 角色出场是否匹配
      - 伏笔埋设是否变化
      - 情感线/实力线变化
 
-3. **偏差分析**：
+3. **【新增】外部大纲与原大纲的差异分析**：
+   ```
+   外部大纲对比分析：
+   - 外部大纲来源：{outline_file_path}
+   - 与原大纲的关系：替代 / 补充
+   - 主要差异点：
+     1. {差异点1}
+     2. {差异点2}
+   - 偏差程度：轻微 / 中度 / 严重
+   ```
+
+4. **偏差分析**：
    ```
    偏差类型：
    - 情节偏移：实际写的与原大纲有较大出入
    - 角色变更：新增/删减角色出场
    - 伏笔变化：提前兑现/延后/取消伏笔
    - 支线增删：新增或删除了支线剧情
+   - 【新增】大纲来源变更：从原大纲变更为外部大纲
    ```
 
-4. **后续章节影响评估**：
+5. **后续章节影响评估**：
    ```bash
    # 检查后续章节是否受影响
    python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" outline check-impact --chapter ${chapter_num} --deviation-type "情节偏移"
@@ -571,8 +750,8 @@ Step 5 失败隔离规则：
 ```
 
 **注意**：
-- 此步骤为条件执行，只有用户提供章节梗概时才运行
-- 若用户未提供梗概，此步骤自动跳过
+- 此步骤为条件执行，只有用户提供章节梗概或外部大纲文件时才运行
+- 若用户未提供梗概或外部大纲文件，此步骤自动跳过
 - 调整建议需要用户确认后才能执行
 
 ### Step 6：Git 备份（可失败但需说明）
@@ -596,7 +775,7 @@ git -c i18n.commitEncoding=UTF-8 commit -m "第{chapter_num}章: {title}"
 3. Step 4 已处理全部 `critical`，`high` 未修项有 deviation 记录
 4. Step 4 的 `anti_ai_force_check=pass`（基于全文检查；fail 时不得进入 Step 5）
 5. Step 5 已回写 `state.json`、`index.db`、`summaries/ch{chapter_padded}.md`
-6. **【新增】若用户提供了章节梗概**：Step 5.5 大纲检查已完成（或用户确认跳过/暂不调整）
+6. **【新增】若用户提供了章节梗概或外部大纲文件**：Step 5.5 大纲检查已完成（或用户确认跳过/暂不调整）
 7. 若开启性能观测，已读取最新 timing 记录并输出结论
 
 ## 验证与交付

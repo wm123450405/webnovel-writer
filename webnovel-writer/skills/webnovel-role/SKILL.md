@@ -9,11 +9,13 @@ allowed-tools: Read Write Edit Grep Bash Task AskUserQuestion
 ## 目标
 
 - 支持命令格式：`/webnovel-role 角色A 角色信息描述`
+- 支持导入外部文件：`/webnovel-role --file <文件路径> [--file <文件路径2> ...]`
 - 若角色不存在，添加角色卡并写入设定
 - 若角色已存在，修改已有角色卡
 - 查看角色的出场章节
 - 检查所有出场章节中角色出场内容是否符合新设定
 - 若有不符合新设定的，需要修改那些不符合设定的章节内容
+- 支持外部文件解析，检测冲突并由用户确认处理方式
 
 ## 角色层级说明
 
@@ -62,9 +64,12 @@ Copy and track progress:
 
 ```
 角色管理进度：
-- [ ] Step 1: 解析命令参数（角色名 + 角色描述）
+- [ ] Step 1: 解析命令参数（支持 --file 导入外部文件）
+- [ ] Step 1.5: 解析外部文件（支持 Markdown/Word/图片/视频）
 - [ ] Step 2: 加载项目数据（state.json）
 - [ ] Step 3: 检查角色是否存在
+- [ ] Step 3.5: 检测冲突（当角色已存在时）
+- [ ] Step 3.6: 用户确认冲突处理方式
 - [ ] Step 4: 添加或更新角色信息
 - [ ] Step 5: 获取角色出场章节
 - [ ] Step 6: 检查出场内容是否符合新设定
@@ -76,14 +81,172 @@ Copy and track progress:
 ## Step 1: 解析命令参数
 
 从用户输入中提取：
-- **角色名**：命令的第一个参数
+- **角色名**：命令的第一个参数（当不使用 --file 时）
 - **角色描述**：命令的剩余部分（角色信息描述）
+- **--file 参数**：支持导入一个或多个外部文件
 
-格式示例：
+### 格式示例
+
+#### 直接输入模式
 ```
 /webnovel-role 角色A 角色信息描述
 /webnovel-role 李明 主角的好友，表面温柔但实际腹黑，是主角小时候的玩伴
 /webnovel-role 女主角 聪明伶俐的古灵精怪少女，与主角不打不相识
+```
+
+#### 文件导入模式
+```
+/webnovel-role --file <文件路径1> [--file <文件路径2> ...]
+/webnovel-role --file 角色设定.md
+/webnovel-role --file 角色设定.docx
+/webnovel-role --file 角色图.png --file 角色视频.mp4
+/webnovel-role --file 角色1.md --file 角色2.docx --file 角色3.jpg
+```
+
+---
+
+### 外部文件支持格式
+
+#### 支持的文件类型
+| 文件类型 | 扩展名 | 处理方式 |
+|---------|-------|---------|
+| Markdown | .md | 解析 YAML frontmatter 或正文内容 |
+| Word 文档 | .docx | 使用 python-docx 提取文本 |
+| 图片 | .jpg, .jpeg, .png | 提示用户 OCR 提取文字或手动描述 |
+| 视频 | .mp4, .avi, .mkv | 提示用户提取字幕或手动描述 |
+
+#### 文件内容格式
+
+**Markdown 格式（推荐）**：
+```markdown
+---
+name: 角色名
+tier: 重要
+aliases:
+  - 别名1
+  - 别名2
+---
+
+# 角色名
+
+角色描述内容...
+```
+
+**JSON 格式**：
+```json
+{
+  "角色名": {
+    "name": "角色名",
+    "tier": "重要",
+    "aliases": ["别名1", "别名2"],
+    "attributes": {
+      "description": "角色描述",
+      "personality": "性格特点",
+      "background": "背景故事",
+      "relationships": {}
+    }
+  }
+}
+```
+
+---
+
+### 多文件处理流程
+
+当使用多个 --file 参数时：
+
+1. **依次解析每个文件**：按顺序读取并解析外部文件
+2. **提取角色信息**：从每个文件中提取角色名和属性
+3. **合并角色数据**：将多个文件中的角色信息合并
+4. **冲突检测**：检测同一角色的重复定义
+
+```bash
+# 示例：处理多个文件
+/webnovel-role --file 角色设定1.md --file 角色设定2.json
+```
+
+---
+
+## Step 1.5: 解析外部文件
+
+当使用 --file 参数时，需要解析外部文件内容。
+
+### 文件解析函数
+
+```python
+import os
+import json
+from pathlib import Path
+
+# 支持的文件格式
+SUPPORTED_EXTENSIONS = {
+    '.md': 'markdown',
+    '.json': 'json',
+    '.docx': 'word',
+    '.jpg': 'image',
+    '.jpeg': 'image',
+    '.png': 'image',
+    '.mp4': 'video',
+    '.avi': 'video',
+    '.mkv': 'video',
+}
+
+def parse_external_file(file_path: str) -> dict:
+    """解析外部文件，支持多种格式"""
+    ext = Path(file_path).suffix.lower()
+
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise ValueError(f"不支持的文件格式: {ext}")
+
+    file_type = SUPPORTED_EXTENSIONS[ext]
+
+    if file_type == 'json':
+        with open(file_path, encoding='utf-8') as f:
+            return json.load(f)
+    elif file_type == 'markdown':
+        return parse_markdown_content(file_path)
+    elif file_type == 'word':
+        return parse_word_document(file_path)
+    elif file_type == 'image':
+        return {'body': '', 'media_type': 'image', 'path': file_path}
+    elif file_type == 'video':
+        return {'body': '', 'media_type': 'video', 'path': file_path}
+
+def parse_markdown_content(file_path: str) -> dict:
+    """解析 Markdown 文件，提取 YAML frontmatter 和正文"""
+    with open(file_path, encoding='utf-8') as f:
+        content = f.read()
+    if content.startswith('---'):
+        parts = content.split('---', 2)
+        if len(parts) >= 3:
+            import yaml
+            frontmatter = yaml.safe_load(parts[1])
+            body = parts[2].strip()
+            return {'frontmatter': frontmatter, 'body': body}
+    return {'body': content}
+
+def parse_word_document(file_path: str) -> dict:
+    """解析 Word 文档"""
+    try:
+        import docx
+        doc = docx.Document(file_path)
+        text = '\n'.join([p.text for p in doc.paragraphs])
+        return {'body': text}
+    except ImportError:
+        return {'error': '请安装 python-docx: pip install python-docx'}
+```
+
+### 图片/视频文件处理
+
+当检测到图片或视频文件时，提示用户：
+
+```
+⚠️ 检测到媒体文件：{文件路径}
+
+图片/视频文件需要您提供文字描述，请选择：
+1. 手动输入角色描述
+2. 尝试 OCR 提取文字（仅图片）
+3. 跳过此文件
 ```
 
 ---
@@ -116,7 +279,91 @@ grep -r "角色名" "$PROJECT_ROOT/设定集/" 2>/dev/null
 | 情况 | 后续操作 |
 |------|---------|
 | 角色不存在 | 创建新角色卡 |
-| 角色已存在 | 更新角色信息 |
+| 角色已存在 | 更新角色信息（进入冲突检测） |
+
+---
+
+## Step 3.5: 检测冲突
+
+当从外部文件导入角色信息，且角色已存在时，需要检测新旧设定之间的冲突。
+
+### 冲突检测函数
+
+```python
+def detect_conflicts(old_entity: dict, new_entity: dict) -> list:
+    """检测冲突项，返回冲突列表"""
+    conflicts = []
+
+    # 比较 attributes
+    old_attrs = old_entity.get('attributes', {})
+    new_attrs = new_entity.get('attributes', {})
+
+    for key in set(old_attrs.keys()) | set(new_attrs.keys()):
+        old_val = old_attrs.get(key)
+        new_val = new_attrs.get(key)
+        if old_val != new_val:
+            conflicts.append({
+                'field': f'attributes.{key}',
+                'old_value': old_val,
+                'new_value': new_val
+            })
+
+    # 检查 tier 冲突
+    if old_entity.get('tier') != new_entity.get('tier'):
+        conflicts.append({
+            'field': 'tier',
+            'old_value': old_entity.get('tier'),
+            'new_value': new_entity.get('tier')
+        })
+
+    return conflicts
+```
+
+### 冲突类型
+
+| 冲突类型 | 说明 | 处理方式 |
+|---------|------|---------|
+| **核心属性冲突** | tier、name 等核心属性冲突 | 必须用户确认 |
+| **次要属性冲突** | description、personality 等非核心属性 | 展示差异，用户选择 |
+| **别名冲突** | 角色别名不一致 | 合并新旧别名 |
+
+---
+
+## Step 3.6: 用户确认冲突处理
+
+当检测到冲突时，需要向用户展示冲突并确认处理方式。
+
+### 用户确认交互
+
+```markdown
+## 检测到冲突：{角色名}
+
+### 已有设定
+- **层级**: {old_tier}
+- **描述**: {old_description}
+- **别名**: {old_aliases}
+
+### 新导入信息
+- **层级**: {new_tier}
+- **描述**: {new_description}
+- **别名**: {new_aliases}
+
+### 冲突详情
+| 字段 | 旧值 | 新值 |
+|-----|------|------|
+| tier | 重要 | 核心 |
+| description | 原描述 | 新描述 |
+
+### 请选择处理方式
+- [ ] **使用新值**：完全使用导入的信息替换旧设定
+- [ ] **保留旧值**：保留已有设定，忽略导入的冲突信息
+- [ ] **合并**：保留两者，创建一个包含所有信息的综合版本
+```
+
+### 处理优先级
+
+- **命令行参数** > **文件参数** > **已有设定**
+- 当同时存在命令行参数和文件参数时，以命令行参数为准
 
 ---
 

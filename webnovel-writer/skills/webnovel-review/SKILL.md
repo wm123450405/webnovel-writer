@@ -57,8 +57,10 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" workflow co
 
 ## Review depth
 
-- **Core (default)**: consistency / continuity / ooc / reader-pull
+- **Core (default)**: consistency / continuity / ooc / reader-pull / duplicate-description
 - **Full (关键章/用户要求)**: core + high-point + pacing
+
+> **注意**: `duplicate-description-checker` 是 Core 默认检查器，用于检测外貌、动作、内心独白等描写的重复问题
 
 ## Step 1: 加载参考（按需）
 
@@ -69,6 +71,7 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" workflow co
 - Step 1（可选，Full 或节奏/爽点相关问题）：[strand-weave-pattern.md](../../references/shared/strand-weave-pattern.md)
 - Step 1（可选，仅在返工建议需要时）：[common-mistakes.md](references/common-mistakes.md)
 - Step 1（可选，仅在返工建议需要时）：[pacing-control.md](references/pacing-control.md)
+- Step 1（可选，仅在描写重复检查需要时）：[duplicate-description-checker.md](references/duplicate-description-checker.md)
 
 ## Reference Loading Levels (strict, lazy)
 
@@ -114,6 +117,7 @@ cat "$PROJECT_ROOT/.webnovel/state.json"
 - `reader-pull-checker`
 - `map-consistency-checker`
 - `power-consistency-checker`
+- `duplicate-description-checker`
 
 **Full 追加**:
 - `high-point-checker`

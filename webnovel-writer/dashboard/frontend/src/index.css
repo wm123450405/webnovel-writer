@@ -125,6 +125,34 @@ body {
   text-align: center;
 }
 
+.nav-item .nav-arrow {
+  margin-left: auto;
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.nav-item .nav-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.nav-children {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 20px;
+  margin-top: 4px;
+}
+
+.nav-child {
+  padding: 8px 12px;
+  font-size: 13px;
+  background: #fffaf0;
+}
+
+.nav-child .icon {
+  width: 18px;
+}
+
 .live-indicator {
   border-top: 3px solid var(--border-main);
   padding: 10px 12px;
@@ -144,6 +172,114 @@ body {
 
 .live-dot.disconnected {
   background: var(--accent-red);
+}
+
+/* 灯箱样式 */
+.lightbox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: pointer;
+}
+
+.lightbox-image {
+  max-width: 90%;
+  max-height: 90%;
+  object-fit: contain;
+  cursor: default;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: #fff;
+  border: 2px solid var(--border-main);
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox-close:hover {
+  background: #ffe6e6;
+}
+
+/* 地图图片样式 */
+.map-image-container {
+  margin: 12px 0;
+  border: 2px solid var(--border-main);
+  overflow: hidden;
+}
+
+.map-image {
+  width: 100%;
+  height: auto;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.map-image:hover {
+  transform: scale(1.02);
+}
+
+.detail-info {
+  margin-top: 12px;
+}
+
+.detail-info p {
+  margin: 6px 0;
+}
+
+.detail-desc {
+  color: var(--text-sub);
+  line-height: 1.6;
+}
+
+/* 角色设定图样式 */
+.character-images {
+  margin-bottom: 12px;
+}
+
+.character-images-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-sub);
+}
+
+.character-images-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.character-image-wrapper {
+  border: 2px solid var(--border-main);
+  overflow: hidden;
+  aspect-ratio: 1;
+}
+
+.character-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.character-image:hover {
+  transform: scale(1.05);
 }
 
 .main-content {

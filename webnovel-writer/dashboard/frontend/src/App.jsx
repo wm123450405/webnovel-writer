@@ -8,6 +8,8 @@ import ForceGraph3D from 'react-force-graph-3d'
 
 export default function App() {
     const [page, setPage] = useState('dashboard')
+    const [settingsSubPage, setSettingsSubPage] = useState('entities') // 设定库子页面
+    const [settingsExpanded, setSettingsExpanded] = useState(false) // 设定库展开状态，默认收起
     const [projectInfo, setProjectInfo] = useState(null)
     const [refreshKey, setRefreshKey] = useState(0)
     const [connected, setConnected] = useState(false)
@@ -36,6 +38,26 @@ export default function App() {
 
     const title = projectInfo?.project_info?.title || '未加载'
 
+    // 处理导航点击
+    const handleNavClick = (item) => {
+        if (item.children) {
+            // 点击父菜单，切换展开状态
+            setSettingsExpanded(!settingsExpanded)
+        } else {
+            setPage(item.id)
+        }
+    }
+
+    // 处理子菜单点击
+    const handleSubNavClick = (subItem, parentId) => {
+        setPage(parentId)
+        setSettingsSubPage(subItem.id)
+        setSettingsExpanded(true)
+    }
+
+    // 判断当前页面是否在设定库下（检查settingsSubPage而不是page）
+    const isInSettings = ['entities', 'items', 'powers', 'maps', 'others'].includes(settingsSubPage)
+
     return (
         <div className="app-layout">
             <aside className="sidebar">
@@ -45,14 +67,30 @@ export default function App() {
                 </div>
                 <nav className="sidebar-nav">
                     {NAV_ITEMS.map(item => (
-                        <button
-                            key={item.id}
-                            className={`nav-item ${page === item.id ? 'active' : ''}`}
-                            onClick={() => setPage(item.id)}
-                        >
-                            <span className="icon">{item.icon}</span>
-                            <span>{item.label}</span>
-                        </button>
+                        <div key={item.id} className="nav-group">
+                            <button
+                                className={`nav-item ${!item.children && page === item.id ? 'active' : ''} ${item.id === 'settings' && isInSettings ? 'active' : ''} ${item.children ? 'has-children' : ''}`}
+                                onClick={() => handleNavClick(item)}
+                            >
+                                <span className="icon">{item.icon}</span>
+                                <span>{item.label}</span>
+                                {item.children && <span className={`nav-arrow ${settingsExpanded ? 'expanded' : ''}`}>▶</span>}
+                            </button>
+                            {item.children && settingsExpanded && (
+                                <div className="nav-children">
+                                    {item.children.map(subItem => (
+                                        <button
+                                            key={subItem.id}
+                                            className={`nav-item nav-child ${page === subItem.id || (isInSettings && settingsSubPage === subItem.id) ? 'active' : ''}`}
+                                            onClick={() => handleSubNavClick(subItem, item.id)}
+                                        >
+                                            <span className="icon">{subItem.icon}</span>
+                                            <span>{subItem.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     ))}
                 </nav>
                 <div className="live-indicator">
@@ -63,9 +101,11 @@ export default function App() {
 
             <main className="main-content">
                 {page === 'dashboard' && <DashboardPage data={projectInfo} key={refreshKey} />}
-                {page === 'entities' && <EntitiesPage key={refreshKey} />}
-                {page === 'powers' && <PowersPage key={refreshKey} />}
-                {page === 'items' && <ItemsPage key={refreshKey} />}
+                {page === 'settings' && settingsSubPage === 'entities' && <EntitiesPage key={refreshKey} />}
+                {page === 'settings' && settingsSubPage === 'powers' && <PowersPage key={refreshKey} />}
+                {page === 'settings' && settingsSubPage === 'items' && <ItemsPage key={refreshKey} />}
+                {page === 'settings' && settingsSubPage === 'maps' && <MapsPage key={refreshKey} />}
+                {page === 'settings' && settingsSubPage === 'others' && <OthersPage key={refreshKey} />}
                 {page === 'graph' && <GraphPage key={refreshKey} />}
                 {page === 'chapters' && <ChaptersPage key={refreshKey} />}
                 {page === 'files' && <FilesPage />}
@@ -77,9 +117,13 @@ export default function App() {
 
 const NAV_ITEMS = [
     { id: 'dashboard', icon: '📊', label: '数据总览' },
-    { id: 'entities', icon: '👤', label: '设定词典' },
-    { id: 'powers', icon: '⚡', label: '功法库' },
-    { id: 'items', icon: '🎁', label: '道具库' },
+    { id: 'settings', icon: '📚', label: '设定库', children: [
+        { id: 'entities', icon: '👤', label: '角色库' },
+        { id: 'items', icon: '🎁', label: '道具库' },
+        { id: 'powers', icon: '⚡', label: '功法库' },
+        { id: 'maps', icon: '🗺️', label: '地图库' },
+        { id: 'others', icon: '📦', label: '其他库' },
+    ]},
     { id: 'graph', icon: '🕸️', label: '关系图谱' },
     { id: 'chapters', icon: '📝', label: '章节一览' },
     { id: 'files', icon: '📁', label: '文档浏览' },
@@ -251,10 +295,11 @@ function DashboardPage({ data }) {
 
 function EntitiesPage() {
     const [entities, setEntities] = useState([])
-    const [typeFilter, setTypeFilter] = useState('')
     const [tierFilter, setTierFilter] = useState('')
     const [selected, setSelected] = useState(null)
+    const [entityDetail, setEntityDetail] = useState(null)
     const [changes, setChanges] = useState([])
+    const [lightboxImage, setLightboxImage] = useState(null)
 
     useEffect(() => {
         fetchJSON('/api/entities').then(setEntities).catch(() => { })
@@ -262,41 +307,43 @@ function EntitiesPage() {
 
     useEffect(() => {
         if (selected) {
+            // 获取实体详情（包含图片信息）
+            fetchJSON(`/api/entities/${selected.id}`).then(setEntityDetail).catch(() => setEntityDetail(null))
+            // 获取状态变化历史
             fetchJSON('/api/state-changes', { entity: selected.id, limit: 30 }).then(setChanges).catch(() => setChanges([]))
         }
     }, [selected])
 
-    const types = [...new Set(entities.map(e => e.type))].sort()
-    const tiers = [...new Set(entities.map(e => e.tier))].sort()
-    let filteredEntities = typeFilter ? entities.filter(e => e.type === typeFilter) : entities
-    filteredEntities = tierFilter ? filteredEntities.filter(e => e.tier === tierFilter) : filteredEntities
-
-    // 辅助函数：获取 tier 显示文本
+    // 辅助函数：将数据库的tier值转换为显示值（装饰 -> 龙套）
     const getTierDisplay = (tier) => {
         if (tier === '装饰') return '龙套'
         return tier
     }
 
+    // 辅助函数：将显示值转换回数据库值（龙套 -> 装饰）
+    const getTierValue = (displayTier) => {
+        if (displayTier === '龙套') return '装饰'
+        return displayTier
+    }
+
+    // 获取唯一的层级值（将装饰和龙套合并为龙套）
+    const tierSet = new Set(entities.map(e => getTierDisplay(e.tier)))
+    const tiers = [...tierSet].sort()
+    let filteredEntities = tierFilter ? entities.filter(e => getTierDisplay(e.tier) === tierFilter) : entities
+
     return (
         <>
             <div className="page-header">
-                <h2>👤 设定词典</h2>
-                <span className="card-badge badge-green">{filteredEntities.length} / {entities.length} 个实体</span>
-            </div>
-
-            <div className="filter-group">
-                <button className={`filter-btn ${typeFilter === '' ? 'active' : ''}`} onClick={() => setTypeFilter('')}>全部</button>
-                {types.map(t => (
-                    <button key={t} className={`filter-btn ${typeFilter === t ? 'active' : ''}`} onClick={() => setTypeFilter(t)}>{t}</button>
-                ))}
+                <h2>👤 角色库</h2>
+                <span className="card-badge badge-green">{filteredEntities.length} / {entities.length} 个角色</span>
             </div>
 
             <div className="filter-group">
                 <span className="filter-label">层级:</span>
                 <button className={`filter-btn ${tierFilter === '' ? 'active' : ''}`} onClick={() => setTierFilter('')}>全部</button>
                 {tiers.map(t => (
-                    <button key={t} className={`filter-btn ${tierFilter === t ? 'active' : ''} ${t === '装饰' ? 'filter-btn-minor' : ''}`} onClick={() => setTierFilter(t)}>
-                        {getTierDisplay(t)}
+                    <button key={t} className={`filter-btn ${tierFilter === t ? 'active' : ''} ${t === '龙套' ? 'filter-btn-minor' : ''}`} onClick={() => setTierFilter(t)}>
+                        {t}
                     </button>
                 ))}
             </div>
@@ -306,7 +353,7 @@ function EntitiesPage() {
                     <div className="card">
                         <div className="table-wrap">
                             <table className="data-table">
-                                <thead><tr><th>名称</th><th>类型</th><th>层级</th><th>首现</th><th>末现</th></tr></thead>
+                                <thead><tr><th>名称</th><th>层级</th><th>首现</th><th>末现</th><th>设定图</th></tr></thead>
                                 <tbody>
                                     {filteredEntities.map(e => (
                                         <tr
@@ -320,10 +367,10 @@ function EntitiesPage() {
                                             <td className={e.is_protagonist ? 'entity-name protagonist' : 'entity-name'}>
                                                 {e.canonical_name} {e.is_protagonist ? '⭐' : ''}
                                             </td>
-                                            <td><span className="card-badge badge-blue">{e.type}</span></td>
-                                            <td><span className={e.tier === '装饰' ? 'card-badge badge-gray' : ''}>{getTierDisplay(e.tier)}</span></td>
+                                            <td><span className={getTierDisplay(e.tier) === '龙套' ? 'card-badge badge-gray' : 'card-badge badge-blue'}>{getTierDisplay(e.tier)}</span></td>
                                             <td>{e.first_appearance || '—'}</td>
                                             <td>{e.last_appearance || '—'}</td>
+                                            <td>{e.image_path ? '📷' : ''}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -332,13 +379,33 @@ function EntitiesPage() {
                     </div>
                 </div>
 
-                {selected && (
+                {selected && entityDetail && (
                     <div className="split-side">
                         <div className="card">
                             <div className="card-header">
                                 <span className="card-title">{selected.canonical_name}</span>
-                                <span className="card-badge badge-purple">{getTierDisplay(selected.tier)}</span>
+                                <span className={`card-badge ${getTierDisplay(selected.tier) === '龙套' ? 'badge-gray' : 'badge-purple'}`}>{getTierDisplay(selected.tier)}</span>
                             </div>
+
+                            {/* 角色设定图展示 */}
+                            {entityDetail.images && entityDetail.images.length > 0 && (
+                                <div className="character-images">
+                                    <div className="character-images-title">设定图</div>
+                                    <div className="character-images-grid">
+                                        {entityDetail.images.map((img, idx) => (
+                                            <div key={idx} className="character-image-wrapper">
+                                                <img
+                                                    src={`/api/files?path=${encodeURIComponent(img)}`}
+                                                    alt={`设定图 ${idx + 1}`}
+                                                    className="character-image"
+                                                    onClick={() => setLightboxImage(img)}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="entity-detail">
                                 <p><strong>类型：</strong>{selected.type}</p>
                                 <p><strong>ID：</strong><code>{selected.id}</code></p>
@@ -375,6 +442,19 @@ function EntitiesPage() {
                     </div>
                 )}
             </div>
+
+            {/* 灯箱 */}
+            {lightboxImage && (
+                <div className="lightbox" onClick={() => setLightboxImage(null)}>
+                    <img
+                        src={`/api/files?path=${encodeURIComponent(lightboxImage)}`}
+                        alt="大图"
+                        className="lightbox-image"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    <button className="lightbox-close" onClick={() => setLightboxImage(null)}>✕</button>
+                </div>
+            )}
         </>
     )
 }
@@ -551,6 +631,202 @@ function ItemsPage() {
                         </div>
                     </div>
                 )}
+            </div>
+        </>
+    )
+}
+
+
+// ====================================================================
+// 页面 4b：地图库
+// ====================================================================
+
+function MapsPage() {
+    const [maps, setMaps] = useState([])
+    const [typeFilter, setTypeFilter] = useState('')
+    const [selected, setSelected] = useState(null)
+    const [detail, setDetail] = useState(null)
+    const [lightboxImage, setLightboxImage] = useState(null)
+
+    useEffect(() => {
+        fetchJSON('/api/maps').then(setMaps).catch(() => { })
+    }, [])
+
+    useEffect(() => {
+        if (selected) {
+            fetchJSON(`/api/maps/${selected.id}`).then(setDetail).catch(() => setDetail(null))
+        }
+    }, [selected])
+
+    const types = [...new Set(maps.map(m => m.map_type))].sort()
+    let filteredMaps = typeFilter ? maps.filter(m => m.map_type === typeFilter) : maps
+    const totalCount = maps.length
+    const filteredCount = filteredMaps.length
+
+    return (
+        <>
+            <div className="page-header">
+                <h2>🗺️ 地图库</h2>
+                <span className="card-badge badge-green">{filteredCount} / {totalCount} 个地图</span>
+            </div>
+
+            <div className="filter-group">
+                <button className={`filter-btn ${typeFilter === '' ? 'active' : ''}`} onClick={() => setTypeFilter('')}>全部</button>
+                {types.map(t => (
+                    <button key={t} className={`filter-btn ${typeFilter === t ? 'active' : ''}`} onClick={() => setTypeFilter(t)}>{t}</button>
+                ))}
+            </div>
+
+            <div className="split-layout">
+                <div className="split-main">
+                    <div className="table-wrap">
+                        <table className="data-table">
+                            <thead>
+                                <tr>
+                                    <th>名称</th>
+                                    <th>类型</th>
+                                    <th>层级</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredMaps.map(map => (
+                                    <tr
+                                        key={map.id}
+                                        className={selected?.id === map.id ? 'selected' : ''}
+                                        onClick={() => setSelected(map)}
+                                    >
+                                        <td>{map.name}</td>
+                                        <td>{map.map_type}</td>
+                                        <td>{map.tier}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {selected && detail && (
+                    <div className="split-side">
+                        <div className="card">
+                            <div className="card-header">
+                                <h3 className="card-title">{selected.name}</h3>
+                                <span className="card-badge badge-blue">{selected.map_type}</span>
+                            </div>
+
+                            {detail.image_path && (
+                                <div className="map-image-container">
+                                    <img
+                                        src={`/api/files?path=${encodeURIComponent(detail.image_path)}`}
+                                        alt={selected.name}
+                                        className="map-image"
+                                        onClick={() => setLightboxImage(detail.image_path)}
+                                    />
+                                </div>
+                            )}
+
+                            <div className="detail-info">
+                                <p><strong>类型：</strong>{detail.map_type}</p>
+                                <p><strong>层级：</strong>{detail.tier}</p>
+                                <p><strong>描述：</strong></p>
+                                <p className="detail-desc">{detail.description}</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {lightboxImage && (
+                <div className="lightbox" onClick={() => setLightboxImage(null)}>
+                    <img
+                        src={`/api/files?path=${encodeURIComponent(lightboxImage)}`}
+                        alt="大图"
+                        className="lightbox-image"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    <button className="lightbox-close" onClick={() => setLightboxImage(null)}>✕</button>
+                </div>
+            )}
+        </>
+    )
+}
+
+// ====================================================================
+// 页面 4c：其他设定库（世界观、力量体系、金手指等）
+// ====================================================================
+
+function OthersPage() {
+    const [items, setItems] = useState([])
+    const [typeFilter, setTypeFilter] = useState('')
+    const [selected, setSelected] = useState(null)
+    const [detail, setDetail] = useState(null)
+
+    useEffect(() => {
+        fetchJSON('/api/others').then(setItems).catch(() => { })
+    }, [])
+
+    useEffect(() => {
+        if (selected) {
+            // 尝试从items API获取详情
+            fetchJSON(`/api/items/${selected.id}`).then(setDetail).catch(() => setDetail(null))
+        }
+    }, [selected])
+
+    const types = [...new Set(items.map(i => i.category))].sort()
+    let filteredItems = typeFilter ? items.filter(i => i.category === typeFilter) : items
+
+    return (
+        <>
+            <div className="page-header">
+                <h2>📦 其他库</h2>
+                <span className="card-badge badge-green">{filteredItems.length} / {items.length} 个设定</span>
+            </div>
+
+            <div className="filter-group">
+                <button className={`filter-btn ${typeFilter === '' ? 'active' : ''}`} onClick={() => setTypeFilter('')}>全部</button>
+                {types.map(t => (
+                    <button key={t} className={`filter-btn ${typeFilter === t ? 'active' : ''}`} onClick={() => setTypeFilter(t)}>{t}</button>
+                ))}
+            </div>
+
+            <div className="split-layout">
+                <div className="split-main">
+                    <div className="card">
+                        <div className="table-wrap">
+                            <table className="data-table">
+                                <thead><tr><th>名称</th><th>类别</th></tr></thead>
+                                <tbody>
+                                    {filteredItems.map(i => (
+                                        <tr
+                                            key={i.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            className={`entity-row ${selected?.id === i.id ? 'selected' : ''}`}
+                                            onKeyDown={evt => (evt.key === 'Enter' || evt.key === ' ') && (evt.preventDefault(), setSelected(i))}
+                                            onClick={() => setSelected(i)}
+                                        >
+                                            <td className="entity-name">{i.name}</td>
+                                            <td><span className="card-badge badge-purple">{i.category}</span></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="split-side">
+                    {selected && (
+                        <div className="card">
+                            <h3>{selected.name}</h3>
+                            <div className="detail-meta">
+                                <span className="card-badge badge-purple">{selected.category}</span>
+                            </div>
+                            <div className="detail-body">
+                                <p>{selected.description || '暂无描述'}</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </>
     )

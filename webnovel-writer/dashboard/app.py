@@ -106,21 +106,84 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         entity_type: Optional[str] = Query(None, alias="type"),
         include_archived: bool = False,
     ):
-        """列出所有实体（可按类型过滤）。"""
-        with closing(_get_db()) as conn:
-            q = "SELECT * FROM entities"
-            params: list = []
-            clauses: list[str] = []
-            if entity_type:
-                clauses.append("type = ?")
-                params.append(entity_type)
-            if not include_archived:
-                clauses.append("is_archived = 0")
-            if clauses:
-                q += " WHERE " + " AND ".join(clauses)
-            q += " ORDER BY last_appearance DESC"
-            rows = conn.execute(q, params).fetchall()
-            return [dict(r) for r in rows]
+        """列出所有角色设定，包含数据库实体和角色卡片文件"""
+        result = []
+
+        # 1. 从数据库获取角色实体
+        try:
+            with closing(_get_db()) as conn:
+                q = "SELECT * FROM entities"
+                params: list = []
+                clauses: list[str] = []
+
+                if entity_type:
+                    clauses.append("type = ?")
+                    params.append(entity_type)
+                elif not include_archived:
+                    clauses.append("type = '角色'")
+
+                if not include_archived and entity_type:
+                    clauses.append("is_archived = 0")
+
+                if clauses:
+                    q += " WHERE " + " AND ".join(clauses)
+                q += " ORDER BY last_appearance DESC"
+                rows = conn.execute(q, params).fetchall()
+
+                # 获取项目根目录
+                try:
+                    root = _get_project_root()
+                    role_images_dir = root / "设定集" / "角色库"
+                except Exception:
+                    role_images_dir = None
+
+                for r in rows:
+                    entity = dict(r)
+                    # 如果是角色类型，查找对应的图片
+                    if role_images_dir and role_images_dir.is_dir() and entity.get('type') == '角色':
+                        role_name = entity.get('id', '')
+                        role_dir = role_images_dir / role_name
+                        if role_dir.is_dir():
+                            for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                                img_file = role_dir / f"角色设定{ext}"
+                                if img_file.exists():
+                                    entity['image_path'] = str(img_file.relative_to(root))
+                                    break
+                    entity['source'] = 'db'
+                    result.append(entity)
+        except Exception:
+            pass
+
+        # 2. 从道具库目录获取角色卡片文件
+        try:
+            root = _get_project_root()
+            items_dir = root / "设定集" / "道具库"
+
+            if items_dir.is_dir():
+                # 角色卡片文件名
+                role_card_names = ('主角卡', '女主卡', '反派卡', '配角卡', '主角组', '女主组', '反派组', '配角组')
+
+                for md_file in items_dir.rglob("*.md"):
+                    if md_file.stem not in role_card_names:
+                        continue
+
+                    data = _read_markdown_file(md_file)
+                    frontmatter = data.get('frontmatter', {})
+
+                    result.append({
+                        'id': md_file.stem,
+                        'canonical_name': frontmatter.get('name', md_file.stem),
+                        'type': frontmatter.get('type', '角色'),
+                        'tier': frontmatter.get('tier', 'S'),
+                        'first_appearance': frontmatter.get('first_appearance', ''),
+                        'last_appearance': frontmatter.get('last_appearance', ''),
+                        'description': data.get('body', '')[:200],
+                        'source': 'file',
+                    })
+        except Exception:
+            pass
+
+        return result
 
     @app.get("/api/entities/{entity_id}")
     def get_entity(entity_id: str):
@@ -128,7 +191,28 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             row = conn.execute("SELECT * FROM entities WHERE id = ?", (entity_id,)).fetchone()
             if not row:
                 raise HTTPException(404, "实体不存在")
-            return dict(row)
+
+            entity = dict(row)
+
+            # 如果是角色类型，查找对应的图片
+            try:
+                root = _get_project_root()
+                role_images_dir = root / "设定集" / "角色库"
+                if role_images_dir.is_dir() and entity.get('type') == '角色':
+                    role_name = entity.get('id', '')
+                    role_dir = role_images_dir / role_name
+                    if role_dir.is_dir():
+                        # 查找所有图片文件
+                        images = []
+                        for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                            for img_file in role_dir.glob(f"*{ext}"):
+                                images.append(str(img_file.relative_to(root)))
+                        if images:
+                            entity['images'] = images
+            except Exception:
+                pass
+
+            return entity
 
     @app.get("/api/entities/statistics")
     def get_entity_statistics():
@@ -474,19 +558,21 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         items_dir = root / "设定集" / "道具库"
 
         if not items_dir.is_dir():
-            # 兼容：道具可能直接在设定集根目录
-            items_dir = root / "设定集"
-
-        if not items_dir.is_dir():
             return []
 
         result = []
 
         # 遍历所有 md 文件（包括子目录）
         # 子目录结构：道具库/丹药/*.md, 道具库/法宝/*.md 等
+        # 跳过所有角色类文件、地图库、功法库和世界观相关文件
+        skip_names = (
+            '主角卡', '女主卡', '反派卡', '配角卡', '主角组', '女主组', '反派组', '配角组',
+            '世界观', '力量体系', '金手指', '地图库', '功法库', '龙套角色'
+        )
+
         for md_file in items_dir.rglob("*.md"):
             # 跳过非道具文件
-            if md_file.stem in ('主角卡', '女主卡', '反派卡', '配角卡', '世界观', '力量体系', '金手指', '地图库', '功法库'):
+            if md_file.stem in skip_names:
                 continue
 
             # 计算相对路径来确定类别
@@ -556,6 +642,149 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
                 }
 
         raise HTTPException(404, "道具不存在")
+
+    # ===========================================================
+    # API：地图库（设定集/地图库 —— 只读）
+    # ===========================================================
+
+    @app.get("/api/maps")
+    def list_maps(map_type: Optional[str] = Query(None, alias="type")):
+        """列出所有地图设定（可按类型过滤），包含地图文件和地点类型实体"""
+        root = _get_project_root()
+        maps_dir = root / "设定集" / "地图库"
+
+        result = []
+
+        # 1. 从地图库目录获取地图文件
+        if maps_dir.is_dir():
+            for md_file in maps_dir.rglob("*.md"):
+                data = _read_markdown_file(md_file)
+                frontmatter = data.get('frontmatter', {})
+
+                # 计算类型（子目录名）
+                try:
+                    rel_path = md_file.relative_to(maps_dir)
+                    if len(rel_path.parts) > 1:
+                        map_type_name = rel_path.parts[0]
+                    else:
+                        map_type_name = frontmatter.get('map_type', '其他')
+                except ValueError:
+                    map_type_name = '其他'
+
+                if map_type and map_type_name != map_type:
+                    continue
+
+                result.append({
+                    'id': md_file.stem,
+                    'name': frontmatter.get('name', md_file.stem),
+                    'map_type': map_type_name,
+                    'tier': frontmatter.get('tier', ''),
+                    'description': data.get('body', '')[:200],
+                    'source': 'map_file',
+                })
+
+        # 2. 从数据库获取地点类型的实体
+        try:
+            with closing(_get_db()) as conn:
+                rows = conn.execute(
+                    "SELECT * FROM entities WHERE type = '地点' AND is_archived = 0 ORDER BY last_appearance DESC"
+                ).fetchall()
+                for r in rows:
+                    entity = dict(r)
+                    if map_type and '地点' != map_type:
+                        continue
+                    result.append({
+                        'id': entity.get('id'),
+                        'name': entity.get('canonical_name') or entity.get('id'),
+                        'map_type': '地点',
+                        'tier': entity.get('tier', ''),
+                        'description': entity.get('description', '')[:200] if entity.get('description') else '',
+                        'source': 'entity',
+                    })
+        except Exception:
+            pass
+
+        return result
+
+    @app.get("/api/others")
+    def list_others():
+        """列出其他设定（世界观、境界、力量体系、金手指等），不包含角色类设定"""
+        root = _get_project_root()
+        items_dir = root / "设定集" / "道具库"
+
+        if not items_dir.is_dir():
+            return []
+
+        result = []
+
+        # 显示世界观、境界、力量体系、金手指等，不包含角色类文件
+        # 角色类文件应该在角色库中管理
+        other_names = ('世界观', '境界', '力量体系', '金手指')
+
+        for md_file in items_dir.rglob("*.md"):
+            if md_file.stem not in other_names:
+                continue
+
+            data = _read_markdown_file(md_file)
+            frontmatter = data.get('frontmatter', {})
+
+            # 确定类别
+            category = frontmatter.get('category', md_file.stem)
+
+            result.append({
+                'id': md_file.stem,
+                'name': frontmatter.get('name', md_file.stem),
+                'category': category,
+                'tier': frontmatter.get('tier', ''),
+                'description': data.get('body', '')[:200],
+            })
+
+        return result
+
+    @app.get("/api/maps/{map_name}")
+    def get_map(map_name: str):
+        """获取单个地图详细信息"""
+        root = _get_project_root()
+        maps_dir = root / "设定集" / "地图库"
+
+        if not maps_dir.is_dir():
+            raise HTTPException(404, "地图库目录不存在")
+
+        # 搜索所有 md 文件
+        for md_file in maps_dir.rglob("*.md"):
+            if md_file.stem == map_name:
+                data = _read_markdown_file(md_file)
+                frontmatter = data.get('frontmatter', {})
+
+                # 计算类型
+                try:
+                    rel_path = md_file.relative_to(maps_dir)
+                    if len(rel_path.parts) > 1:
+                        map_type_name = rel_path.parts[0]
+                    else:
+                        map_type_name = frontmatter.get('map_type', '其他')
+                except ValueError:
+                    map_type_name = '其他'
+
+                # 查找对应的图片文件
+                image_path = None
+                img_dir = md_file.parent
+                for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                    img_file = img_dir / f"{md_file.stem}{ext}"
+                    if img_file.exists():
+                        image_path = str(img_file.relative_to(root))
+                        break
+
+                return {
+                    'id': map_name,
+                    'name': frontmatter.get('name', map_name),
+                    'map_type': map_type_name,
+                    'tier': frontmatter.get('tier', ''),
+                    'description': data.get('body', ''),
+                    'image_path': image_path,
+                }
+
+        raise HTTPException(404, "地图不存在")
 
     # ===========================================================
     # SSE：实时变更推送

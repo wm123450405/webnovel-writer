@@ -252,6 +252,116 @@ class IndexEntityMixin:
             conn.commit()
             return cursor.rowcount > 0
 
+    def merge_entities(self, source_ids: List[str], target_id: str) -> Dict[str, Any]:
+        """
+        合并多个实体到目标实体
+
+        Args:
+            source_ids: 要合并的源实体ID列表
+            target_id: 目标实体ID
+
+        Returns:
+            包含合并结果的字典
+        """
+        result = {
+            "success": False,
+            "source_ids": source_ids,
+            "target_id": target_id,
+            "merged_appearances": [],
+            "merged_aliases": [],
+            "merged_relationships": [],
+            "archived_count": 0,
+            "errors": [],
+        }
+
+        if not source_ids or not target_id:
+            result["errors"].append("源实体列表和目标实体ID不能为空")
+            return result
+
+        # 获取所有源实体的数据
+        source_entities = []
+        for sid in source_ids:
+            entity = self.get_entity(sid)
+            if entity:
+                source_entities.append(entity)
+            else:
+                result["errors"].append(f"源实体不存在: {sid}")
+
+        if not source_entities:
+            result["errors"].append("没有有效的源实体")
+            return result
+
+        target_entity = self.get_entity(target_id)
+        if not target_entity:
+            result["errors"].append(f"目标实体不存在: {target_id}")
+            return result
+
+        # 1. 合并出场记录
+        all_appearances = set()
+        for entity in source_entities:
+            if entity.get("first_appearance"):
+                all_appearances.add(int(entity.get("first_appearance")))
+            if entity.get("last_appearance"):
+                all_appearances.add(int(entity.get("last_appearance")))
+        if target_entity.get("first_appearance"):
+            all_appearances.add(int(target_entity.get("first_appearance")))
+        if target_entity.get("last_appearance"):
+            all_appearances.add(int(target_entity.get("last_appearance")))
+
+        merged_chapters = sorted(all_appearances)
+        result["merged_appearances"] = merged_chapters
+
+        # 更新目标实体的出场信息
+        if merged_chapters:
+            first_ch = min(merged_chapters)
+            last_ch = max(merged_chapters)
+            self.update_entity_current(target_id, {
+                "first_appearance": first_ch,
+                "last_appearance": last_ch,
+            })
+
+        # 2. 合并别名
+        all_aliases = set()
+        for entity in source_entities:
+            aliases = self.get_entity_aliases(entity["id"])
+            all_aliases.update(aliases)
+        target_aliases = self.get_entity_aliases(target_id)
+        all_aliases.update(target_aliases)
+
+        for alias in all_aliases:
+            self.register_alias(alias, target_id, "角色")
+        result["merged_aliases"] = list(all_aliases)
+
+        # 3. 合并关系
+        all_relationships = []
+        for entity in source_entities:
+            rels = self.get_entity_relationships(entity["id"])
+            for rel in rels:
+                # 更新关系中的实体引用
+                if rel.get("from_entity") == entity["id"]:
+                    rel["from_entity"] = target_id
+                if rel.get("to_entity") == entity["id"]:
+                    rel["to_entity"] = target_id
+                # 检查是否已存在相同关系
+                existing = self.get_relationship_between(rel["from_entity"], rel["to_entity"])
+                if not existing:
+                    self.upsert_relationship(RelationshipMeta(**{
+                        "from_entity": rel["from_entity"],
+                        "to_entity": rel["to_entity"],
+                        "type": rel.get("type", "未知"),
+                        "description": rel.get("description", ""),
+                    }))
+                    all_relationships.append(rel)
+        result["merged_relationships"] = all_relationships
+
+        # 4. 归档源实体
+        for sid in source_ids:
+            if self.archive_entity(sid):
+                result["archived_count"] += 1
+
+        result["success"] = True
+        return result
+
     # ==================== v5.1 别名操作 ====================
 
     def register_alias(self, alias: str, entity_id: str, entity_type: str) -> bool:

@@ -210,6 +210,11 @@ def main():
     list_parser.add_argument("--entity", required=True, help="实体ID")
     list_parser.add_argument("--type", help="实体类型")
 
+    # 合并实体
+    merge_parser = subparsers.add_parser("merge-entities")
+    merge_parser.add_argument("--sources", required=True, help="源实体ID列表（逗号分隔）")
+    merge_parser.add_argument("--target", required=True, help="目标实体ID")
+
     argv = normalize_global_project_root(sys.argv[1:])
     args = parser.parse_args(argv)
 
@@ -265,6 +270,21 @@ def main():
         entity_type = getattr(args, "type", None)
         aliases = linker.get_all_aliases(args.entity, entity_type)
         emit_success(aliases, message="aliases")
+
+    elif args.command == "merge-entities":
+        # 解析源实体列表
+        source_ids = [s.strip() for s in args.sources.split(",") if s.strip()]
+        target_id = args.target
+
+        # 调用IndexManager的merge_entities方法
+        try:
+            merge_result = logger.merge_entities(source_ids, target_id)
+            if merge_result.get("success"):
+                emit_success(merge_result, message="entities_merged")
+            else:
+                emit_error("MERGE_FAILED", f"合并失败: {', '.join(merge_result.get('errors', []))}")
+        except Exception as e:
+            emit_error("MERGE_ERROR", f"合并时发生错误: {str(e)}")
 
     else:
         emit_error("UNKNOWN_COMMAND", "未指定有效命令", suggestion="请查看 --help")

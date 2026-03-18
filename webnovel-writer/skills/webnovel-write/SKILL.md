@@ -809,6 +809,41 @@ Step 5 失败隔离规则：
 - 若用户未提供梗概或外部大纲文件，此步骤自动跳过
 - 调整建议需要用户确认后才能执行
 
+---
+
+## 【新增】单独更新章节数据命令
+
+如果在章节编写或修改后发现数据没有正确更新，可以使用以下命令单独更新指定章节的数据：
+
+### 命令格式
+
+```bash
+# 更新指定章节的数据到索引库
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" index update-chapter --chapter <章节号> --chapter-file "<章节文件路径>" --project-root "${PROJECT_ROOT}"
+
+# 示例
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" index update-chapter --chapter 10 --chapter-file "正文/第10章.md" --project-root "${PROJECT_ROOT}"
+```
+
+### 命令说明
+
+此命令会：
+1. 读取指定章节文件的内容
+2. 重新计算章节字数（去除空白字符后的中文字数）
+3. 更新 index.db 中的章节元数据（字数、标题等）
+
+### 常见使用场景
+
+1. **章节编写/修改后数据未更新**：手动触发更新
+2. **字数统计错误**：重新计算字数并更新
+3. **索引数据丢失**：重新导入章节数据
+
+### 注意事项
+
+- 确保章节文件存在
+- 此命令只更新章节基本信息，不提取实体和场景
+- 如需完整更新（包括实体、场景），请使用 Data Agent
+
 ### Step 6：Git 备份（可失败但需说明）
 
 ```bash

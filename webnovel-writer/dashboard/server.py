@@ -8,7 +8,9 @@ Dashboard 启动脚本
 
 import argparse
 import os
+import socket
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -40,16 +42,51 @@ def _resolve_project_root(cli_root: str | None) -> Path:
     sys.exit(1)
 
 
+def is_port_available(host: str, port: int) -> bool:
+    """检查端口是否可用"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((host, port))
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+def find_available_port(host: str, start_port: int, max_attempts: int = 10) -> int:
+    """查找可用端口"""
+    port = start_port
+
+    for attempt in range(max_attempts):
+        if is_port_available(host, port):
+            return port
+
+        if attempt == 0:
+            print(f"端口 {port} 已被占用，正在尝试其他端口...", file=sys.stderr)
+        port += 1
+        time.sleep(0.1)  # 短暂等待后重试
+
+    # 所有端口都被占用
+    print(f"错误：无法找到可用端口（已尝试 {max_attempts} 个端口）", file=sys.stderr)
+    sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Webnovel Dashboard Server")
     parser.add_argument("--project-root", type=str, default=None, help="小说项目根目录")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址")
     parser.add_argument("--port", type=int, default=8765, help="监听端口")
+    parser.add_argument("--port-retries", type=int, default=10, help="端口冲突重试次数")
     parser.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
     args = parser.parse_args()
 
     project_root = _resolve_project_root(args.project_root)
     print(f"项目路径: {project_root}")
+
+    # 检查端口可用性，如不可用则自动尝试其他端口
+    actual_port = args.port
+    if not is_port_available(args.host, args.port):
+        actual_port = find_available_port(args.host, args.port, args.port_retries)
 
     # 延迟导入，以便先处理路径
     import uvicorn
@@ -57,14 +94,14 @@ def main():
 
     app = create_app(project_root)
 
-    url = f"http://{args.host}:{args.port}"
+    url = f"http://{args.host}:{actual_port}"
     print(f"Dashboard 启动: {url}")
     print(f"API 文档: {url}/docs")
 
     if not args.no_browser:
         webbrowser.open(url)
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(app, host=args.host, port=actual_port, log_level="info")
 
 
 if __name__ == "__main__":

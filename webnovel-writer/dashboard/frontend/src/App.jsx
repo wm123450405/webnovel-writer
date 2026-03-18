@@ -69,7 +69,7 @@ export default function App() {
                     {NAV_ITEMS.map(item => (
                         <div key={item.id} className="nav-group">
                             <button
-                                className={`nav-item ${!item.children && page === item.id ? 'active' : ''} ${item.id === 'settings' && isInSettings ? 'active' : ''} ${item.children ? 'has-children' : ''}`}
+                                className={`nav-item ${!item.children && page === item.id ? 'active' : ''} ${item.children ? 'has-children' : ''}`}
                                 onClick={() => handleNavClick(item)}
                             >
                                 <span className="icon">{item.icon}</span>
@@ -181,8 +181,8 @@ function DashboardPage({ data }) {
     const targetWords = info.target_words || 2000000
     const pct = targetWords > 0 ? Math.min(100, (totalWords / targetWords * 100)).toFixed(1) : 0
 
-    // 从统计数据中计算龙套角色数量
-    const minorCount = entityStats.find(s => s.tier === '装饰' && s.type === '角色')?.count || 0
+    // 从统计数据中计算重要角色数量（非装饰/龙套的角色）
+    const importantCount = entityStats.filter(s => s.type === '角色' && s.tier !== '装饰' && s.tier !== '龙套').reduce((sum, s) => sum + s.count, 0)
 
     const unresolvedForeshadow = foreshadowing.filter(f => {
         const s = (f.status || '').toLowerCase()
@@ -236,9 +236,9 @@ function DashboardPage({ data }) {
                 </div>
 
                 <div className="card stat-card">
-                    <span className="stat-label">龙套角色</span>
-                    <span className="stat-value" style={{ color: '#757575' }}>{minorCount}</span>
-                    <span className="stat-sub">推动剧情的龙套角色</span>
+                    <span className="stat-label">重要角色</span>
+                    <span className="stat-value" style={{ color: '#1890ff' }}>{importantCount}</span>
+                    <span className="stat-sub">核心+重要+次要角色</span>
                 </div>
             </div>
 

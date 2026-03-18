@@ -81,6 +81,21 @@ python -m dashboard.server --project-root "${PROJECT_ROOT}" --no-browser
 - Dashboard 为纯只读面板，所有 API 仅 GET，不提供任何修改接口。
 - 文件读取严格限制在 `PROJECT_ROOT` 范围内，防止路径穿越。
 - 如需自定义端口，添加 `--port 9000` 参数。
+- **【新增】端口自动检测**：启动时会检查端口是否可用，如被占用会自动尝试其他端口（默认重试10次）。
+- 如需自定义重试次数，使用 `--port-retries 5` 参数。
+
+### 端口检测示例
+
+```bash
+# 默认启动（端口8765，如被占用会自动尝试8766-8774）
+python -m dashboard.server --project-root "${PROJECT_ROOT}"
+
+# 指定端口，如被占用则重试5次
+python -m dashboard.server --project-root "${PROJECT_ROOT}" --port 9000 --port-retries 5
+
+# 固定端口，不重试（如被占用则启动失败）
+python -m dashboard.server --project-root "${PROJECT_ROOT}" --port 9000 --port-retries 0
+```
 
 ## 【新增】地图可视化查看
 

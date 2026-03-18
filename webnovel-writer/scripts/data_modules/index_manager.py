@@ -675,6 +675,17 @@ def main():
     process_parser.add_argument("--entities", required=True, help="JSON 格式的实体列表")
     process_parser.add_argument("--scenes", required=True, help="JSON 格式的场景列表")
 
+    # 更新章节数据（从文件）
+    update_chapter_parser = subparsers.add_parser("update-chapter")
+    update_chapter_parser.add_argument("--chapter", type=int, required=True, help="章节号")
+    update_chapter_parser.add_argument("--chapter-file", required=True, help="章节文件路径")
+    update_chapter_parser.add_argument("--project-root", type=str, required=True, help="项目根目录")
+
+    # 同步所有数据
+    sync_parser = subparsers.add_parser("sync-all")
+    sync_parser.add_argument("--full", action="store_true", help="完整重建，清空现有数据")
+    sync_parser.add_argument("--type", type=str, default=None, help="同步类型: entities/chapters/all")
+
     # ==================== v5.1 引入命令 ====================
 
     # 获取实体
@@ -952,6 +963,26 @@ def main():
             scenes=scenes,
         )
         emit_success(stats, message="chapter_processed", chapter=args.chapter)
+
+    elif args.command == "update-chapter":
+        # 从章节文件更新章节数据到索引库
+        result = manager.update_chapter_from_file(
+            chapter=args.chapter,
+            chapter_file=args.chapter_file,
+            project_root=args.project_root,
+        )
+        if result["success"]:
+            emit_success(result, message="chapter_updated", chapter=args.chapter)
+        else:
+            emit_error("UPDATE_FAILED", result.get("error", "更新失败"))
+
+    elif args.command == "sync-all":
+        # 同步所有数据
+        result = manager.sync_all_data(
+            full=args.full,
+            sync_type=args.type,
+        )
+        emit_success(result, message="sync_complete")
 
     # ==================== v5.1 引入命令处理 ====================
 

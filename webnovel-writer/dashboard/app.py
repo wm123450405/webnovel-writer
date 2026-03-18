@@ -106,10 +106,10 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         entity_type: Optional[str] = Query(None, alias="type"),
         include_archived: bool = False,
     ):
-        """列出所有角色设定，包含数据库实体和角色卡片文件"""
+        """列出所有角色设定，从数据库获取"""
         result = []
 
-        # 1. 从数据库获取角色实体
+        # 从数据库获取角色实体
         try:
             with closing(_get_db()) as conn:
                 q = "SELECT * FROM entities"
@@ -151,35 +151,6 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
                                     break
                     entity['source'] = 'db'
                     result.append(entity)
-        except Exception:
-            pass
-
-        # 2. 从道具库目录获取角色卡片文件
-        try:
-            root = _get_project_root()
-            items_dir = root / "设定集" / "道具库"
-
-            if items_dir.is_dir():
-                # 角色卡片文件名
-                role_card_names = ('主角卡', '女主卡', '反派卡', '配角卡', '主角组', '女主组', '反派组', '配角组')
-
-                for md_file in items_dir.rglob("*.md"):
-                    if md_file.stem not in role_card_names:
-                        continue
-
-                    data = _read_markdown_file(md_file)
-                    frontmatter = data.get('frontmatter', {})
-
-                    result.append({
-                        'id': md_file.stem,
-                        'canonical_name': frontmatter.get('name', md_file.stem),
-                        'type': frontmatter.get('type', '角色'),
-                        'tier': frontmatter.get('tier', 'S'),
-                        'first_appearance': frontmatter.get('first_appearance', ''),
-                        'last_appearance': frontmatter.get('last_appearance', ''),
-                        'description': data.get('body', '')[:200],
-                        'source': 'file',
-                    })
         except Exception:
             pass
 
@@ -562,35 +533,41 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
 
         result = []
 
-        # 遍历所有 md 文件（包括子目录）
-        # 子目录结构：道具库/丹药/*.md, 道具库/法宝/*.md 等
-        # 跳过所有角色类文件、地图库、功法库和世界观相关文件
-        skip_names = (
-            '主角卡', '女主卡', '反派卡', '配角卡', '主角组', '女主组', '反派组', '配角组',
-            '世界观', '力量体系', '金手指', '地图库', '功法库', '龙套角色'
-        )
+        # 道具库的合法子目录（只有这些目录下的文件才属于道具）
+        valid_item_dirs = {
+            '丹药', '法宝', '符箓', '兵器', '防具', '材料', '灵宠', '阵法',
+            '信物', '日常', '其他', '物品'
+        }
 
         for md_file in items_dir.rglob("*.md"):
-            # 跳过非道具文件
-            if md_file.stem in skip_names:
-                continue
-
             # 计算相对路径来确定类别
             try:
                 rel_path = md_file.relative_to(items_dir)
                 # 如果在子目录中，父目录名就是类别
                 if len(rel_path.parts) > 1:
                     category = rel_path.parts[0]
+                    # 只有在合法道具子目录中的文件才属于道具
+                    if category not in valid_item_dirs:
+                        continue
                 else:
-                    # 根目录的文件，尝试从 frontmatter 获取类别
+                    # 根目录的文件，检查frontmatter中的category
                     category = ''
             except ValueError:
-                category = ''
+                continue
 
             data = _read_markdown_file(md_file)
             frontmatter = data.get('frontmatter', {})
             # 优先使用 frontmatter 中的类别，否则用目录名
             item_category = frontmatter.get('category', category)
+
+            # 再次验证：如果category为空且frontmatter也没有有效category，跳过
+            if not item_category and len(rel_path.parts) == 1:
+                continue
+
+            # 过滤：只保留有有效道具类别的
+            if item_category and item_category not in valid_item_dirs:
+                # 如果frontmatter中的category不是有效道具类别，跳过
+                continue
 
             if item_type and item_category != item_type:
                 continue
@@ -598,7 +575,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             result.append({
                 'id': md_file.stem,
                 'name': frontmatter.get('name', md_file.stem),
-                'category': item_category,
+                'category': item_category if item_category else rel_path.parts[0] if len(rel_path.parts) > 1 else '',
                 'tier': frontmatter.get('tier', ''),
                 'rarity': frontmatter.get('rarity', ''),
                 'description': data.get('body', '')[:200],
@@ -699,57 +676,76 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
                 })
 
         # 2. 从数据库获取地点类型的实体
+        # 包括：地点、星球、势力等属于地图范畴的实体
         try:
             with closing(_get_db()) as conn:
+                # 查询所有属于地图范畴的实体类型
                 rows = conn.execute(
-                    "SELECT * FROM entities WHERE type = '地点' AND is_archived = 0 ORDER BY last_appearance DESC"
+                    "SELECT * FROM entities WHERE type IN ('地点', '星球', '势力') AND is_archived = 0 ORDER BY last_appearance DESC"
                 ).fetchall()
                 for r in rows:
                     entity = dict(r)
-                    if map_type and '地点' != map_type:
+                    entity_type = entity.get('type', '')
+                    # 如果过滤条件不匹配，跳过
+                    if map_type and entity_type != map_type:
                         continue
                     result.append({
                         'id': entity.get('id'),
                         'name': entity.get('canonical_name') or entity.get('id'),
-                        'map_type': '地点',
+                        'map_type': entity_type,
                         'tier': entity.get('tier', ''),
                         'description': entity.get('description', '')[:200] if entity.get('description') else '',
                         'source': 'entity',
                     })
-        except Exception:
+        except Exception as e:
+            # 静默忽略错误，不影响地图文件显示
             pass
 
         return result
 
     @app.get("/api/others")
     def list_others():
-        """列出其他设定（世界观、境界、力量体系、金手指等），不包含角色类设定"""
+        """列出其他设定，从设定集/其他设定/目录获取"""
         root = _get_project_root()
-        items_dir = root / "设定集" / "道具库"
+        others_dir = root / "设定集" / "其他设定"
 
-        if not items_dir.is_dir():
+        if not others_dir.is_dir():
+            # 兼容：也可能直接在设定集根目录
+            others_dir = root / "设定集"
+
+        if not others_dir.is_dir():
             return []
 
         result = []
 
-        # 显示世界观、境界、力量体系、金手指等，不包含角色类文件
-        # 角色类文件应该在角色库中管理
-        other_names = ('世界观', '境界', '力量体系', '金手指')
+        # 合法其他设定子目录
+        valid_other_dirs = {'世界观', '境界', '力量体系', '金手指', '设计'}
 
-        for md_file in items_dir.rglob("*.md"):
-            if md_file.stem not in other_names:
+        for md_file in others_dir.rglob("*.md"):
+            try:
+                rel_path = md_file.relative_to(root / "设定集")
+                # 检查是否在合法其他设定目录中
+                if len(rel_path.parts) > 1:
+                    category = rel_path.parts[0]
+                    if category not in valid_other_dirs:
+                        continue
+                else:
+                    # 根目录的文件需要检查frontmatter
+                    category = ''
+            except ValueError:
                 continue
 
             data = _read_markdown_file(md_file)
             frontmatter = data.get('frontmatter', {})
+            item_category = frontmatter.get('category', category)
 
-            # 确定类别
-            category = frontmatter.get('category', md_file.stem)
+            if not item_category and len(rel_path.parts) == 1:
+                continue
 
             result.append({
                 'id': md_file.stem,
                 'name': frontmatter.get('name', md_file.stem),
-                'category': category,
+                'category': item_category or category,
                 'tier': frontmatter.get('tier', ''),
                 'description': data.get('body', '')[:200],
             })

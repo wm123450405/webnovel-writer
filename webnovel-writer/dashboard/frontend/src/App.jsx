@@ -558,6 +558,7 @@ function ItemsPage() {
     const [typeFilter, setTypeFilter] = useState('')
     const [selected, setSelected] = useState(null)
     const [detail, setDetail] = useState(null)
+    const [lightboxImage, setLightboxImage] = useState(null)
 
     useEffect(() => {
         fetchJSON('/api/items').then(setItems).catch(() => { })
@@ -621,17 +622,46 @@ function ItemsPage() {
                                 <span className="card-title">{detail.name}</span>
                                 <span className="card-badge badge-blue">{detail.category}</span>
                             </div>
+
+                            {detail.image_path && (
+                                <div className="item-image-container" style={{marginBottom: 12}}>
+                                    <img
+                                        src={`/api/files?path=${encodeURIComponent(detail.image_path)}`}
+                                        alt={detail.name}
+                                        className="item-image"
+                                        style={{maxWidth: '100%', maxHeight: 200, cursor: 'pointer', borderRadius: 4}}
+                                        onClick={() => setLightboxImage(detail.image_path)}
+                                    />
+                                </div>
+                            )}
+
                             <div className="entity-detail">
                                 <p><strong>ID：</strong><code>{detail.id}</code></p>
                                 <p><strong>类别：</strong>{detail.category}</p>
                                 <p><strong>层级：</strong>{detail.tier}</p>
                                 <p><strong>稀有度：</strong>{detail.rarity || '—'}</p>
-                                {detail.content && <div className="entity-desc" style={{marginTop: 12}}>{detail.content}</div>}
+                                {detail.content && (
+                                    <div className="detail-content" style={{marginTop: 12, maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6}}>
+                                        {detail.content}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
                 )}
             </div>
+
+            {lightboxImage && (
+                <div className="lightbox" onClick={() => setLightboxImage(null)}>
+                    <img
+                        src={`/api/files?path=${encodeURIComponent(lightboxImage)}`}
+                        alt="大图"
+                        className="lightbox-image"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    <button className="lightbox-close" onClick={() => setLightboxImage(null)}>✕</button>
+                </div>
+            )}
         </>
     )
 }
@@ -727,8 +757,11 @@ function MapsPage() {
                             <div className="detail-info">
                                 <p><strong>类型：</strong>{detail.map_type}</p>
                                 <p><strong>层级：</strong>{detail.tier}</p>
-                                <p><strong>描述：</strong></p>
-                                <p className="detail-desc">{detail.description}</p>
+                                {detail.description && (
+                                    <div className="detail-content" style={{marginTop: 8, maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6}}>
+                                        {detail.description}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -766,8 +799,8 @@ function OthersPage() {
 
     useEffect(() => {
         if (selected) {
-            // 尝试从items API获取详情
-            fetchJSON(`/api/items/${selected.id}`).then(setDetail).catch(() => setDetail(null))
+            // 从others API获取详情
+            fetchJSON(`/api/others/${selected.id}`).then(setDetail).catch(() => setDetail(null))
         }
     }, [selected])
 
@@ -815,14 +848,20 @@ function OthersPage() {
                 </div>
 
                 <div className="split-side">
-                    {selected && (
+                    {selected && detail && (
                         <div className="card">
-                            <h3>{selected.name}</h3>
+                            <h3>{detail.name || selected.name}</h3>
                             <div className="detail-meta">
-                                <span className="card-badge badge-purple">{selected.category}</span>
+                                <span className="card-badge badge-purple">{detail.category || selected.category}</span>
                             </div>
                             <div className="detail-body">
-                                <p>{selected.description || '暂无描述'}</p>
+                                {detail.content ? (
+                                    <div className="detail-content" style={{maxHeight: 400, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6}}>
+                                        {detail.content}
+                                    </div>
+                                ) : (
+                                    <p>{selected.description || '暂无描述'}</p>
+                                )}
                             </div>
                         </div>
                     )}

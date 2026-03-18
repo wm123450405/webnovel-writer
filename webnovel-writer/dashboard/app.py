@@ -632,6 +632,20 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
                 frontmatter = data.get('frontmatter', {})
                 item_category = frontmatter.get('category', category)
 
+                # 查找对应的道具设定图
+                image_path = None
+                img_dir = md_file.parent
+                for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                    img_file = img_dir / f"{md_file.stem}{ext}"
+                    if img_file.exists():
+                        image_path = str(img_file.relative_to(root))
+                        break
+                # 也检查风格设定图
+                if not image_path:
+                    style_img = img_dir / "风格设定.png"
+                    if style_img.exists():
+                        image_path = str(style_img.relative_to(root))
+
                 return {
                     'id': item_name,
                     'name': frontmatter.get('name', item_name),
@@ -639,6 +653,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
                     'tier': frontmatter.get('tier', ''),
                     'rarity': frontmatter.get('rarity', ''),
                     'content': data.get('body', ''),
+                    'image_path': image_path,
                 }
 
         raise HTTPException(404, "道具不存在")
@@ -741,6 +756,31 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
 
         return result
 
+    @app.get("/api/others/{other_name}")
+    def get_other(other_name: str):
+        """获取单个其他设定的详细信息"""
+        root = _get_project_root()
+        items_dir = root / "设定集" / "道具库"
+
+        if not items_dir.is_dir():
+            raise HTTPException(404, "道具库目录不存在")
+
+        # 搜索指定的md文件
+        for md_file in items_dir.rglob("*.md"):
+            if md_file.stem == other_name:
+                data = _read_markdown_file(md_file)
+                frontmatter = data.get('frontmatter', {})
+
+                return {
+                    'id': other_name,
+                    'name': frontmatter.get('name', other_name),
+                    'category': frontmatter.get('category', other_name),
+                    'tier': frontmatter.get('tier', ''),
+                    'content': data.get('body', ''),
+                }
+
+        raise HTTPException(404, "设定不存在")
+
     @app.get("/api/maps/{map_name}")
     def get_map(map_name: str):
         """获取单个地图详细信息"""
@@ -774,6 +814,11 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
                     if img_file.exists():
                         image_path = str(img_file.relative_to(root))
                         break
+                # 也检查风格设定图
+                if not image_path:
+                    style_img = img_dir / "风格设定.png"
+                    if style_img.exists():
+                        image_path = str(style_img.relative_to(root))
 
                 return {
                     'id': map_name,

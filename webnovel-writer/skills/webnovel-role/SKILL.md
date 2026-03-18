@@ -580,28 +580,133 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" query entity 
 - 背景环境要求
 - 艺术风格要求
 
-**步骤 3：调用 Claude API 生成图片**
+**步骤 3：调用图片生成服务**
 
-使用 Claude 的图片生成能力创建设定图：
+由于 Claude Code 不支持直接生成图片，需要使用外部图片生成服务。
 
+**环境变量配置**（在 `.env` 或系统环境中设置）：
+
+```bash
+# 图片生成服务配置（必填）
+export IMAGE_GEN_PROVIDER="openai"  # 或 "anthropic", "custom"
+export IMAGE_GEN_API_KEY="your-api-key"  # 必填
+
+# 可选配置
+export IMAGE_GEN_MODEL="dall-e-3"   # 默认: dall-e-3
+export IMAGE_GEN_BASE_URL="https://api.openai.com/v1"  # 自定义API地址
 ```
-提示词模板：
-请生成一张角色设定图，图片尺寸1536x1536像素，包含以下6个区域（每个区域512x1024像素，图片内容居中）：
 
-1. 左上区域(0,0,512,1024)：全身正面图
-2. 左下区域(0,1024,512,512)：胸口以上正面特写
-3. 中上区域(512,0,512,1024)：全身侧面图
-4. 中下区域(512,1024,512,512)：胸口以上侧面特写
-5. 右上区域(1024,0,512,1024)：全身背面图
-6. 右下区域(1024,1024,512,512)：胸口以上背面特写
+**使用辅助脚本生成图片**（推荐）：
 
-角色描述：{角色外貌描述}
+```bash
+# 使用图片生成辅助模块
+python "${SCRIPTS_DIR}/image_generator.py" "角色描述 prompt" "输出路径.png" "1024x1024"
 
-要求：
-- 所有6个区域的角色外貌必须完全一致，不能有任何矛盾
-- 角色图片在每个区域中居中显示
-- 整体风格统一，符合小说世界观
-- 图片清晰，细节丰富
+# 示例
+python "${SCRIPTS_DIR}/image_generator.py" \
+    "一个穿蓝色长袍的少女，黑发黑眸" \
+    "${PROJECT_ROOT}/设定集/角色库/李明/角色设定.png" \
+    "1024x1024"
+```
+
+**使用 Python 代码调用**：
+
+```python
+import sys
+sys.path.insert(0, "${SCRIPTS_DIR}")
+from image_generator import generate_and_save
+
+# 生成图片
+generate_and_save(
+    prompt="角色外貌描述",
+    output_path="设定集/角色库/角色名/角色设定.png",
+    size="1024x1024"
+)
+```
+
+**使用子 Agent 生成图片**（备选）：
+
+```python
+# 使用 Agent 工具调用图片生成服务
+# 子 Agent 会使用配置的图片生成服务来生成图片
+agent_result = Agent(
+    subagent_type="general-purpose",
+    description="generate character image",
+    prompt=f"""
+    请帮我生成一张角色设定图。
+
+    图片规格：
+    - 尺寸：1536x1536像素
+    - 包含6个区域（每个区域512x1024像素）
+
+    角色外貌描述：
+    {角色外貌描述}
+
+    要求：
+    - 所有6个区域的角色外貌必须完全一致
+    - 角色图片在每个区域中居中显示
+    - 整体风格统一，符合小说世界观
+    - 图片清晰，细节丰富
+
+    请生成图片并将图片保存到指定路径。
+    """
+)
+```
+
+**直接调用图片生成服务**（如果配置了环境变量）：
+
+```python
+import os
+import base64
+import requests
+
+def generate_image(prompt: str, size: str = "1536x1536") -> bytes:
+    """调用图片生成服务返回图片二进制数据"""
+    provider = os.environ.get("IMAGE_GEN_PROVIDER", "openai")
+    api_key = os.environ.get("IMAGE_GEN_API_KEY", "")
+    model = os.environ.get("IMAGE_GEN_MODEL", "dall-e-3")
+    base_url = os.environ.get("IMAGE_GEN_BASE_URL", "https://api.openai.com/v1")
+
+    if not api_key:
+        raise Exception("未配置 IMAGE_GEN_API_KEY 环境变量")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": model,
+        "prompt": prompt,
+        "size": size,
+        "quality": "standard",
+        "n": 1
+    }
+
+    response = requests.post(
+        f"{base_url}/images/generations",
+        headers=headers,
+        json=data,
+        timeout=120
+    )
+
+    if response.status_code == 200:
+        result = response.json()
+        image_url = result["data"][0]["url"]
+        # 下载图片并返回二进制
+        img_response = requests.get(image_url)
+        return img_response.content
+    else:
+        raise Exception(f"图片生成失败: {response.text}")
+
+# 使用示例
+try:
+    image_bytes = generate_image(prompt, "1536x1536")
+    # 保存图片
+    with open("设定图.png", "wb") as f:
+        f.write(image_bytes)
+except Exception as e:
+    print(f"生成失败: {e}")
 ```
 
 **步骤 4：保存设定图**
@@ -615,7 +720,7 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "$PROJECT_ROOT" query entity 
 mkdir -p "${PROJECT_ROOT}/设定集/角色库/${角色名}"
 
 # 保存图片
-# 图片保存逻辑由 Claude API 返回的 base64 数据写入文件
+# 图片保存逻辑由图片生成服务返回的数据写入文件
 ```
 
 ### 4.5.4 设定图路径记录
@@ -809,7 +914,7 @@ ls "$PROJECT_ROOT/正文/"
 
 4. 生成角色设定图：
    - 提取外貌描述：身高180cm，黑发黑眸，身穿青色长袍
-   - 调用 Claude API 生成 1536x1536 设定图（包含6个视角）
+   - 调用图片生成服务生成 1536x1536 设定图（包含6个视角）
    - 保存到：设定集/角色库/李明/角色设定.png
 
 5. 获取出场章节：
@@ -949,7 +1054,7 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" entity add 
    cp "设定集/角色库/角色A/角色设定_少年时期.png" "设定集/角色库/合并后角色名/角色设定_少年时期.png"
 
    # 如果缺少某时期设定图，生成新的
-   # 调用 Claude API 生成 1536x1536 设定图
+   # 调用图片生成服务生成 1536x1536 设定图
    ```
 
 ### Step M3: 更新关联数据

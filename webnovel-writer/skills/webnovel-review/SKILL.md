@@ -47,7 +47,9 @@ Step 映射（必须与 `workflow_manager.py get_pending_steps("webnovel-review"
 - Step 5：保存审查指标到 index.db
 - Step 6：写回审查记录到 state.json
 - Step 7：处理关键问题（AskUserQuestion）
-- Step 8：收尾（完成任务）
+- Step 8：生成章节摘要（每个章节都要生成）
+- Step 9：标记章节审查状态（检测修改过的章节）
+- Step 10：收尾（完成任务）
 
 Step 记录模板（bash，失败不阻断）：
 ```bash
@@ -193,10 +195,135 @@ python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" update-stat
 若用户选择 B：
 - 不做正文修改，仅保留审查报告与指标记录，结束本次审查
 
-## Step 8: 收尾（完成任务）
+## Step 8: 生成章节摘要（每个章节都要生成）
+
+**重要**：当一次性审查多个章节时，必须为**每个章节**都生成摘要文件。
 
 ```bash
-python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" workflow start-step --step-id "Step 8" --step-name "收尾" || true
-python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" workflow complete-step --step-id "Step 8" --artifacts '{"ok":true}' || true
+# 为每个章节生成摘要
+mkdir -p "${PROJECT_ROOT}/.webnovel/summaries"
+
+for chapter in $(seq {start} {end}); do
+    chapter_padded=$(printf "%04d" $chapter)
+    summary_file="${PROJECT_ROOT}/.webnovel/summaries/ch${chapter_padded}.md"
+
+    # 生成章节摘要（包含本章要点、人物出场、伏笔等）
+    cat > "$summary_file" << 'EOF'
+---
+chapter: {chapter_num}
+type: summary
+reviewed_at: {timestamp}
+---
+
+# 第 {chapter_num} 章摘要
+
+## 本章要点
+- ...
+
+## 主要人物出场
+- ...
+
+## 伏笔记录
+- ...
+
+## 设定引用
+- ...
+EOF
+    echo "已生成: $summary_file"
+done
+```
+
+## Step 9: 标记章节审查状态
+
+### 9.1 标记已审查的章节
+
+```bash
+# 更新审查记录，标记每个章节的审查状态
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" update-state -- --mark-reviewed "{start}-{end}"
+```
+
+### 9.2 检测并标记修改过的章节
+
+在审查开始前，检查是否有章节被修改过：
+
+```bash
+# 检查章节文件的修改时间
+for chapter in $(seq {start} {end}); do
+    chapter_padded=$(printf "%04d" $chapter)
+
+    # 查找章节文件
+    chapter_file=$(find "${PROJECT_ROOT}/正文" -name "第${chapter}章.md" -o -name "第${chapter}章-*.md" 2>/dev/null | head -1)
+
+    if [ -n "$chapter_file" ]; then
+        # 获取文件的修改时间
+        file_mtime=$(stat -c %Y "$chapter_file" 2>/dev/null || stat -f %m "$chapter_file" 2>/dev/null)
+
+        # 检查上次审查时间
+        last_review=$(python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" get-chapter-meta --chapter $chapter 2>/dev/null | grep -o '"last_review":[0-9]*' | cut -d: -f2)
+
+        if [ -n "$last_review" ] && [ "$file_mtime" -gt "$last_review" ]; then
+            echo "章节 $chapter 已被修改，标记为需要重新审查"
+            python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" update-state -- --mark-needs-review $chapter
+        fi
+    fi
+done
+```
+
+### 9.3 审查后更新章节状态
+
+```bash
+# 更新审查后的章节状态
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" update-state -- --update-chapter-meta {start}-{end}
+```
+
+## Step 10: 收尾（完成任务）
+
+```bash
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" workflow start-step --step-id "Step 10" --step-name "收尾" || true
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" workflow complete-step --step-id "Step 10" --artifacts '{"ok":true}' || true
 python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" workflow complete-task --artifacts '{"ok":true}' || true
+```
+
+## 【修改检测机制】
+
+### 修改检测原理
+
+当章节文件被修改后，需要自动标记该章节为"需要重新审查"状态：
+
+1. **修改检测触发时机**：
+   - 手动修改章节文件后
+   - 通过 Edit 工具修改正文后
+   - 章节文件时间戳发生变化时
+
+2. **标记方式**：
+   - 在 `state.json` 的 `chapter_meta` 中设置 `needs_review: true`
+   - 同时记录 `modified_at` 时间戳
+
+3. **审查优先级**：
+   - 标记为 `needs_review: true` 的章节优先审查
+   - 审查完成后自动设置为 `needs_review: false`
+
+### 修改检测命令
+
+```bash
+# 检测单个章节是否需要重新审查
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" check-chapter-modified --chapter {num}
+
+# 标记章节需要重新审查
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" mark-chapter-modified --chapter {num}
+
+# 获取所有需要重新审查的章节
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" list-chapters-needs-review
+```
+
+### 修改后自动标记流程
+
+在完成任何章节修改后（通过 Edit 工具），自动执行：
+
+```bash
+# 自动标记修改的章节
+chapter_num={章节号}
+python "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" mark-chapter-modified --chapter $chapter_num
+
+echo "章节 $chapter_num 已标记为需要重新审查，下次审查时将重点检查"
 ```

@@ -341,6 +341,135 @@ class StateUpdater:
         })
         print(f"📝 添加审查记录: 第{chapters_range}章 → {report_file}")
 
+    def mark_chapters_reviewed(self, chapters_range: str):
+        """标记章节已审查"""
+        # 初始化 chapter_meta（如果不存在）
+        if "chapter_meta" not in self.state:
+            self.state["chapter_meta"] = {}
+
+        # 解析章节范围（如 1-10）
+        if '-' in chapters_range:
+            start, end = chapters_range.split('-')
+            chapters = list(range(int(start), int(end) + 1))
+        else:
+            chapters = [int(chapters_range)]
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        for chapter in chapters:
+            chapter_key = str(chapter)
+            if chapter_key not in self.state["chapter_meta"]:
+                self.state["chapter_meta"][chapter_key] = {}
+
+            self.state["chapter_meta"][chapter_key]["last_reviewed_at"] = now
+            self.state["chapter_meta"][chapter_key]["needs_review"] = False
+            self.state["chapter_meta"][chapter_key]["reviewed"] = True
+
+        print(f"✅ 已标记章节 {chapters_range} 为已审查")
+
+    def mark_chapter_needs_review(self, chapter: int):
+        """标记章节需要重新审查"""
+        if "chapter_meta" not in self.state:
+            self.state["chapter_meta"] = {}
+
+        chapter_key = str(chapter)
+        if chapter_key not in self.state["chapter_meta"]:
+            self.state["chapter_meta"][chapter_key] = {}
+
+        self.state["chapter_meta"][chapter_key]["needs_review"] = True
+        self.state["chapter_meta"][chapter_key]["needs_review_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        print(f"🔴 已标记第{chapter}章需要重新审查")
+
+    def mark_chapter_modified(self, chapter: int):
+        """标记章节已修改（自动设置需要重新审查）"""
+        if "chapter_meta" not in self.state:
+            self.state["chapter_meta"] = {}
+
+        chapter_key = str(chapter)
+        if chapter_key not in self.state["chapter_meta"]:
+            self.state["chapter_meta"][chapter_key] = {}
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        self.state["chapter_meta"][chapter_key]["modified_at"] = now
+        self.state["chapter_meta"][chapter_key]["needs_review"] = True
+
+        print(f"📝 已标记第{chapter}章已修改（自动设置需要重新审查）")
+
+    def check_chapter_modified(self, chapter: int):
+        """检查章节是否已修改"""
+        if "chapter_meta" not in self.state:
+            self.state["chapter_meta"] = {}
+
+        chapter_key = str(chapter)
+        meta = self.state["chapter_meta"].get(chapter_key, {})
+
+        modified = meta.get("modified_at")
+        last_reviewed = meta.get("last_reviewed_at")
+        needs_review = meta.get("needs_review", False)
+
+        if modified and last_reviewed:
+            modified_dt = datetime.strptime(modified, "%Y-%m-%d %H:%M:%S")
+            reviewed_dt = datetime.strptime(last_reviewed, "%Y-%m-%d %H:%M:%S")
+            if modified_dt > reviewed_dt:
+                print(f"🔴 第{chapter}章已被修改（修改时间: {modified}，上次审查: {last_reviewed}）")
+                print(f"   需要重新审查: 是")
+                return
+
+        if needs_review:
+            print(f"🔴 第{chapter}章需要重新审查（标记时间: {meta.get('needs_review_at', '未知')}）")
+        else:
+            print(f"✅ 第{chapter}章无需重新审查")
+
+    def list_chapters_needs_review(self):
+        """列出所有需要重新审查的章节"""
+        if "chapter_meta" not in self.state:
+            self.state["chapter_meta"] = {}
+
+        needs_review_list = []
+        for chapter, meta in self.state["chapter_meta"].items():
+            if meta.get("needs_review", False):
+                needs_review_list.append({
+                    "chapter": chapter,
+                    "reason": "modified" if meta.get("modified_at") else "marked",
+                    "marked_at": meta.get("needs_review_at") or meta.get("modified_at", "未知")
+                })
+
+        if not needs_review_list:
+            print("✅ 所有章节都是最新审查状态，无需重新审查")
+            return
+
+        print(f"🔴 以下章节需要重新审查（共 {len(needs_review_list)} 个）：")
+        for item in sorted(needs_review_list, key=lambda x: int(x["chapter"])):
+            print(f"   - 第{item['chapter']}章 - {item['reason']} - 标记时间: {item['marked_at']}")
+
+    def update_chapter_meta_reviewed(self, chapters_range: str):
+        """更新章节元数据（标记已审查，清除修改标记）"""
+        if "chapter_meta" not in self.state:
+            self.state["chapter_meta"] = {}
+
+        # 解析章节范围
+        if '-' in chapters_range:
+            start, end = chapters_range.split('-')
+            chapters = list(range(int(start), int(end) + 1))
+        else:
+            chapters = [int(chapters_range)]
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        for chapter in chapters:
+            chapter_key = str(chapter)
+            if chapter_key not in self.state["chapter_meta"]:
+                self.state["chapter_meta"][chapter_key] = {}
+
+            # 更新审查状态
+            self.state["chapter_meta"][chapter_key]["last_reviewed_at"] = now
+            self.state["chapter_meta"][chapter_key]["reviewed"] = True
+            self.state["chapter_meta"][chapter_key]["needs_review"] = False
+
+        print(f"✅ 已更新章节 {chapters_range} 的元数据")
+
     def update_strand_tracker(self, strand: str, chapter: int):
         """更新主导情节线（Strand Weave系统）"""
         # 验证 strand 参数
@@ -517,6 +646,46 @@ def main():
         help='添加审查记录（章节范围 报告文件）'
     )
 
+    # 章节审查状态更新
+    parser.add_argument(
+        '--mark-reviewed',
+        metavar='CHAPTERS_RANGE',
+        help='标记章节已审查（如 1-10）'
+    )
+
+    parser.add_argument(
+        '--mark-needs-review',
+        type=int,
+        metavar='CHAPTER',
+        help='标记章节需要重新审查（章节号）'
+    )
+
+    parser.add_argument(
+        '--mark-chapter-modified',
+        type=int,
+        metavar='CHAPTER',
+        help='标记章节已修改（章节号）'
+    )
+
+    parser.add_argument(
+        '--check-chapter-modified',
+        type=int,
+        metavar='CHAPTER',
+        help='检查章节是否已修改（章节号）'
+    )
+
+    parser.add_argument(
+        '--list-chapters-needs-review',
+        action='store_true',
+        help='列出所有需要重新审查的章节'
+    )
+
+    parser.add_argument(
+        '--update-chapter-meta',
+        metavar='CHAPTERS_RANGE',
+        help='更新章节元数据（标记已审查）'
+    )
+
     # Strand Tracker 更新
     parser.add_argument(
         '--strand-dominant',
@@ -538,7 +707,13 @@ def main():
         args.progress,
         args.volume_planned,
         args.add_review,
-        args.strand_dominant
+        args.strand_dominant,
+        args.mark_reviewed,
+        args.mark_needs_review,
+        args.mark_chapter_modified,
+        args.check_chapter_modified,
+        args.list_chapters_needs_review,
+        args.update_chapter_meta,
     ]):
         parser.print_help()
         sys.exit(1)
@@ -604,6 +779,26 @@ def main():
         if args.add_review:
             chapters_range, report_file = args.add_review
             updater.add_review_checkpoint(chapters_range, report_file)
+
+        # 章节审查状态更新
+        if args.mark_reviewed:
+            updater.mark_chapters_reviewed(args.mark_reviewed)
+
+        if args.mark_needs_review:
+            updater.mark_chapter_needs_review(args.mark_needs_review)
+
+        if args.mark_chapter_modified:
+            updater.mark_chapter_modified(args.mark_chapter_modified)
+
+        if args.check_chapter_modified is not None:
+            updater.check_chapter_modified(args.check_chapter_modified)
+
+        if args.list_chapters_needs_review:
+            updater.list_chapters_needs_review()
+            sys.exit(0)  # 列表命令不需要保存
+
+        if args.update_chapter_meta:
+            updater.update_chapter_meta_reviewed(args.update_chapter_meta)
 
         # Strand Tracker 更新
         if args.strand_dominant:

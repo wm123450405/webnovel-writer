@@ -598,7 +598,12 @@ class IndexChapterMixin:
         return True
 
     def _sync_chapters_from_directory(self) -> int:
-        """从章节目录同步章节"""
+        """从章节目录同步章节
+
+        支持两种目录结构：
+        1. 正文/第X章/第X章.md (原始结构)
+        2. 正文/第1卷/第XXXX章-标题.md (卷目录结构)
+        """
         import re
 
         chapters_dir = self.config.project_root / "正文"
@@ -606,24 +611,36 @@ class IndexChapterMixin:
             return 0
 
         count = 0
-        for chapter_dir in chapters_dir.iterdir():
-            if not chapter_dir.is_dir():
-                continue
 
-            match = re.match(r'第(\d+)章', chapter_dir.name)
-            if not match:
-                continue
+        # 遍历正文目录下的所有条目
+        for entry in chapters_dir.iterdir():
+            # 情况1: 直接是章节目录 (正文/第X章/)
+            if entry.is_dir():
+                match = re.match(r'第(\d+)章', entry.name)
+                if match:
+                    chapter_num = int(match.group(1))
+                    chapter_files = list(entry.glob("*.md"))
+                    if chapter_files:
+                        try:
+                            self._sync_single_chapter(chapter_files[0], chapter_num)
+                            count += 1
+                        except Exception as e:
+                            print(f"同步章节 {chapter_num} 失败: {e}")
+                    continue
 
-            chapter_num = int(match.group(1))
-            chapter_files = list(chapter_dir.glob("*.md"))
-            if not chapter_files:
-                continue
-
-            try:
-                self._sync_single_chapter(chapter_files[0], chapter_num)
-                count += 1
-            except Exception as e:
-                print(f"同步章节 {chapter_num} 失败: {e}")
+            # 情况2: 是卷目录 (正文/第1卷/)
+            if entry.is_dir():
+                # 检查卷目录下是否有章节文件
+                for chapter_file in entry.glob("*.md"):
+                    # 匹配 第XXXX章-标题.md 格式
+                    match = re.match(r'第(\d+)章', chapter_file.stem)
+                    if match:
+                        chapter_num = int(match.group(1))
+                        try:
+                            self._sync_single_chapter(chapter_file, chapter_num)
+                            count += 1
+                        except Exception as e:
+                            print(f"同步章节 {chapter_num} 失败: {e}")
 
         return count
 
@@ -835,6 +852,7 @@ class IndexChapterMixin:
         - ### 伏笔 [ID]: 描述 @章节
         - - [ID] 描述
         """
+        import re
         foreshadowing = []
         lines = body.split('\n')
         current_foreshadowing = None
